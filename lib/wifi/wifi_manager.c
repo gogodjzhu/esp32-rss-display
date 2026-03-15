@@ -39,7 +39,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-esp_err_t wifi_manager_connect(void)
+esp_err_t wifi_manager_connect(wifi_work_mode_t mode)
 {
     // 初始化NVS存储
     esp_err_t ret = nvs_flash_init();
@@ -55,12 +55,36 @@ esp_err_t wifi_manager_connect(void)
     // 创建默认事件循环
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    // 创建默认WiFi Station网络接口
-    esp_netif_create_default_wifi_sta();
-
     // 初始化WiFi驱动
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    if (mode == MODE_AP) {
+        // 创建默认WiFi AP网络接口
+        esp_netif_create_default_wifi_ap();
+
+        // 注册事件处理函数
+        ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+
+        // 配置WiFi AP
+        wifi_config_t wifi_config = {0};
+        strncpy((char*)wifi_config.ap.ssid, WIFI_SSID, sizeof(wifi_config.ap.ssid));
+        wifi_config.ap.ssid_len = strlen(WIFI_SSID);
+        strncpy((char*)wifi_config.ap.password, WIFI_PASSWORD, sizeof(wifi_config.ap.password));
+        wifi_config.ap.max_connection = 4;
+        wifi_config.ap.authmode = WIFI_AUTH_WPA_PSK;
+
+        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+        ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+        ESP_ERROR_CHECK(esp_wifi_start());
+
+        ESP_LOGI(TAG, "WiFi AP started, SSID: %s", WIFI_SSID);
+        return ESP_OK;
+    }
+
+    // 默认STA模式
+    // 创建默认WiFi Station网络接口
+    esp_netif_create_default_wifi_sta();
 
     // 注册事件处理函数
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));

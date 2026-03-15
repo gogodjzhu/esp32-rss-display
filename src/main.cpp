@@ -18,7 +18,7 @@ static const char *TAG = "MAIN";
 extern "C" void app_main()
 {
     // 连接WiFi (wifi_manager内部处理所有初始化)
-    if (wifi_manager_connect() == ESP_OK) {
+    if (wifi_manager_connect(MODE_AP) == ESP_OK) {
         // 获取并打印IP地址
         esp_ip4_addr_t* ip = wifi_manager_get_ip();
         if (ip) {

@@ -15,11 +15,20 @@ extern "C" {
 #endif
 
 /**
- * @brief 初始化并连接WiFi (Station模式)
- * @note 阻塞直到连接成功或失败
+ * @brief WiFi工作模式
+ */
+typedef enum {
+    MODE_STA,   /**< Station模式 */
+    MODE_AP     /**< AP模式 */
+} wifi_work_mode_t;
+
+/**
+ * @brief 初始化并连接WiFi
+ * @param mode 工作模式: MODE_STA 或 MODE_AP
+ * @note STA模式阻塞直到连接成功或失败
  * @return ESP_OK 成功，其他失败
  */
-esp_err_t wifi_manager_connect(void);
+esp_err_t wifi_manager_connect(wifi_work_mode_t mode);
 
 /**
  * @brief 获取WiFi的IP地址
