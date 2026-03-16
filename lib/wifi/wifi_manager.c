@@ -11,8 +11,6 @@
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_timer.h>
-#include <nvs_flash.h>
-#include <nvs.h>
 #include "wifi_manager.h"
 
 static const char *TAG = "WIFI_MGR";
@@ -87,43 +85,8 @@ esp_err_t wifi_manager_init(void)
 
     ESP_LOGI(TAG, "Initializing WiFi Manager...");
 
-    ESP_LOGI(TAG, "Initializing NVS flash...");
-    esp_err_t ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS partition full or version mismatch (err=%d), erasing and re-initializing", ret);
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "NVS flash initialized");
-
-    ESP_LOGI(TAG, "Checking firmware version (current=%u)...", WIFI_FIRMWARE_VER);
-    nvs_handle_t nvs_handle;
-    ret = nvs_open(WIFI_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-    if (ret == ESP_OK) {
-        uint32_t saved_ver = 0;
-        esp_err_t err = nvs_get_u32(nvs_handle, WIFI_NVS_KEY_VER, &saved_ver);
-        nvs_close(nvs_handle);
-        
-        if (err == ESP_OK && saved_ver != WIFI_FIRMWARE_VER) {
-            ESP_LOGW(TAG, "Firmware version changed (%u -> %u), clearing old credentials", 
-                      saved_ver, WIFI_FIRMWARE_VER);
-            wifi_manager_clear_credentials();
-        } else if (err == ESP_OK) {
-            ESP_LOGI(TAG, "Firmware version unchanged (%u), keeping credentials", saved_ver);
-        } else {
-            ESP_LOGI(TAG, "No saved firmware version found (first boot?), writing version %u", WIFI_FIRMWARE_VER);
-        }
-        
-        if (err != ESP_OK || saved_ver != WIFI_FIRMWARE_VER) {
-            nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-            nvs_set_u32(nvs_handle, WIFI_NVS_KEY_VER, WIFI_FIRMWARE_VER);
-            nvs_commit(nvs_handle);
-            nvs_close(nvs_handle);
-        }
-    } else {
-        ESP_LOGI(TAG, "NVS namespace '%s' not found (first boot), will be created on first save", WIFI_NVS_NAMESPACE);
-    }
+    ESP_LOGI(TAG, "Initializing NVS...");
+    ESP_ERROR_CHECK(nvs_manager_init());
 
     ESP_LOGI(TAG, "Initializing TCP/IP stack...");
     ESP_ERROR_CHECK(esp_netif_init());
@@ -146,38 +109,16 @@ esp_err_t wifi_manager_init(void)
 esp_err_t wifi_manager_save_credentials(const char *ssid, const char *password)
 {
     ESP_LOGI(TAG, "Saving credentials: ssid=%s, password=%s", ssid, password);
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    esp_err_t err = nvs_manager_set_str(WIFI_NVS_KEY_SSID, ssid);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS open failed: %d", err);
         return err;
     }
-
-    // 保存SSID
-    err = nvs_set_str(nvs_handle, WIFI_NVS_KEY_SSID, ssid);
+    err = nvs_manager_set_str(WIFI_NVS_KEY_PASS, password);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS set ssid failed: %d", err);
-        nvs_close(nvs_handle);
         return err;
     }
-
-    // 保存密码
-    err = nvs_set_str(nvs_handle, WIFI_NVS_KEY_PASS, password);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS set password failed: %d", err);
-        nvs_close(nvs_handle);
-        return err;
-    }
-
-    // 提交更改
-    err = nvs_commit(nvs_handle);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "NVS commit failed: %d", err);
-    }
-
-    nvs_close(nvs_handle);
     ESP_LOGI(TAG, "WiFi credentials saved");
-    return err;
+    return ESP_OK;
 }
 
 // 从NVS加载WiFi凭证
@@ -186,28 +127,18 @@ esp_err_t wifi_manager_save_credentials(const char *ssid, const char *password)
 esp_err_t wifi_manager_load_credentials(char *ssid, char *password, size_t max_len)
 {
     ESP_LOGI(TAG, "Loading WiFi credentials from NVS...");
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
-    if (err != ESP_OK) {
-        ESP_LOGI(TAG, "NVS namespace '%s' not found (err=%d), no saved credentials", WIFI_NVS_NAMESPACE, err);
-        return err;
-    }
-
     size_t ssid_len = max_len;
     size_t pass_len = max_len;
-
-    err = nvs_get_str(nvs_handle, WIFI_NVS_KEY_SSID, ssid, &ssid_len);
+    
+    esp_err_t err = nvs_manager_get_str(WIFI_NVS_KEY_SSID, ssid, &ssid_len);
     if (err != ESP_OK) {
         ESP_LOGI(TAG, "No SSID found in NVS (err=%d)", err);
-        nvs_close(nvs_handle);
         return err;
     }
 
-    err = nvs_get_str(nvs_handle, WIFI_NVS_KEY_PASS, password, &pass_len);
-    nvs_close(nvs_handle);
-
+    err = nvs_manager_get_str(WIFI_NVS_KEY_PASS, password, &pass_len);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Loaded credentials: ssid=%s, password=%s", ssid, password);
+        ESP_LOGI(TAG, "Loaded credentials: ssid=%s", ssid);
     } else {
         ESP_LOGI(TAG, "SSID found but no password in NVS (err=%d)", err);
     }
@@ -219,10 +150,7 @@ esp_err_t wifi_manager_load_credentials(char *ssid, char *password, size_t max_l
 // 返回: true - 已保存, false - 未保存
 bool wifi_manager_has_credentials(void)
 {
-    char ssid[32] = {0};
-    char password[64] = {0};
-    esp_err_t err = wifi_manager_load_credentials(ssid, password, sizeof(ssid));
-    bool has = (err == ESP_OK && strlen(ssid) > 0);
+    bool has = nvs_manager_has_key(WIFI_NVS_KEY_SSID);
     ESP_LOGI(TAG, "Checking saved credentials: %s", has ? "FOUND" : "NOT FOUND");
     return has;
 }
@@ -231,32 +159,16 @@ bool wifi_manager_has_credentials(void)
 // 用于重置到出厂配置模式
 esp_err_t wifi_manager_clear_credentials(void)
 {
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open(WIFI_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
-    if (err != ESP_OK) {
+    esp_err_t err = nvs_manager_erase(WIFI_NVS_KEY_SSID);
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
         return err;
     }
-
-    // 擦除SSID
-    err = nvs_erase_key(nvs_handle, WIFI_NVS_KEY_SSID);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        nvs_close(nvs_handle);
+    err = nvs_manager_erase(WIFI_NVS_KEY_PASS);
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
         return err;
     }
-
-    // 擦除密码
-    err = nvs_erase_key(nvs_handle, WIFI_NVS_KEY_PASS);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        nvs_close(nvs_handle);
-        return err;
-    }
-
-    // 提交更改
-    err = nvs_commit(nvs_handle);
-    nvs_close(nvs_handle);
-
     ESP_LOGI(TAG, "WiFi credentials cleared");
-    return err;
+    return ESP_OK;
 }
 
 // 启动AP模式 (配置模式)

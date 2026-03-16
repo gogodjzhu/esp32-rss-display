@@ -1,0 +1,28 @@
+menu "RSS Display Configuration"
+
+config WIFI_AP_SSID
+    string "WiFi AP SSID"
+    default "ESP32-Config"
+    help
+        SSID for the WiFi AP mode (config portal).
+
+config WIFI_AP_PASSWORD
+    string "WiFi AP Password"
+    default "12345678"
+    help
+        Password for the WiFi AP mode. Must be at least 8 characters.
+
+config WIFI_CONNECT_TIMEOUT_SEC
+    int "WiFi connection timeout (seconds)"
+    default 60
+    range 10 300
+    help
+        Timeout for WiFi connection in STA mode.
+
+config FIRMWARE_VERSION
+    int "Firmware version"
+    default 1
+    help
+        Firmware version number. Changing this will trigger NVS clear on next boot.
+
+endmenu

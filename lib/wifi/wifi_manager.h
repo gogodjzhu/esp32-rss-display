@@ -9,18 +9,18 @@
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_netif_types.h>
+#include "nvs_manager.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define WIFI_NVS_NAMESPACE  "wifi_config"
-#define WIFI_NVS_KEY_SSID   "ssid"
-#define WIFI_NVS_KEY_PASS   "password"
-#define WIFI_NVS_KEY_VER    "fw_ver"        // 固件版本号，用于检测升级
-#define WIFI_FIRMWARE_VER   4               // 固件版本号，升级时需要清空NVS
-#define WIFI_AP_SSID        "ESP32-Config"
-#define WIFI_AP_PASSWORD    "12345678"
+#define WIFI_NVS_KEY_SSID   "wifi_ssid"
+#define WIFI_NVS_KEY_PASS   "wifi_password"
+
+// WiFi AP 配置 (来自 sdkconfig)
+#define WIFI_AP_SSID        CONFIG_WIFI_AP_SSID
+#define WIFI_AP_PASSWORD    CONFIG_WIFI_AP_PASSWORD
 
 /**
  * @brief WiFi工作模式
