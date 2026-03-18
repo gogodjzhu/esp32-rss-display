@@ -15,6 +15,24 @@
 
 static const char *TAG = "HTTP_SERVER";
 
+static void url_decode(char *str)
+{
+    char *src = str, *dst = str;
+    while (*src) {
+        if (*src == '%' && src[1] && src[2]) {
+            char hex[3] = {src[1], src[2], 0};
+            *dst++ = (char)strtol(hex, NULL, 16);
+            src += 3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
+
 // HTML页面模板 - 公共头部
 #define HTML_HEADER "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ESP32 WiFi Config</title>"
 // HTML页面模板 - 样式
@@ -132,6 +150,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
             char *end = strchr(ptr, '&');
             if (end) *end = '\0';
             strncpy(ssid, ptr, sizeof(ssid) - 1);
+            url_decode(ssid);
             if (end) ptr = end + 1;
             else break;
         } else if (strncmp(ptr, "password=", 9) == 0) {
@@ -139,6 +158,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
             char *end = strchr(ptr, '&');
             if (end) *end = '\0';
             strncpy(password, ptr, sizeof(password) - 1);
+            url_decode(password);
             break;
         } else {
             ptr++;
