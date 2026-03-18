@@ -25,4 +25,17 @@ config FIRMWARE_VERSION
     help
         Firmware version number. Changing this will trigger NVS clear on next boot.
 
+config RSS_URL
+    string "RSS feed URL"
+    default "http://192.168.3.107:1200/nytimes"
+    help
+        URL of the RSS feed to fetch.
+
+config RSS_FETCH_INTERVAL_SEC
+    int "RSS fetch interval (seconds)"
+    default 300
+    range 30 86400
+    help
+        Interval in seconds between RSS feed fetches.
+
 endmenu

@@ -12,6 +12,7 @@
 
 #include "wifi_manager.h"
 #include "http_server.h"
+#include "rss_reader.h"
 
 static const char *TAG = "MAIN";
 
@@ -50,6 +51,9 @@ extern "C" void app_main()
     if (server == NULL) {
         ESP_LOGE(TAG, "HTTP server start failed!");
     }
+
+    rss_reader_init();
+    xTaskCreate(rss_reader_task, "rss_reader", 8192, NULL, 3, NULL);
 
     // 10分钟超时检测计时
     int64_t start_time = esp_timer_get_time() / 1000;

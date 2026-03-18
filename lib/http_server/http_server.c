@@ -12,6 +12,7 @@
 #include <esp_timer.h>
 #include "http_server.h"
 #include "wifi_manager.h"
+#include "rss_reader.h"
 
 static const char *TAG = "HTTP_SERVER";
 
@@ -99,8 +100,13 @@ static const char *success_page_html =
     "<script>setTimeout(()=>location.href='/',5000);</script>"
     HTML_END;
 
-// 根路径处理函数 - 根据当前模式返回对应页面
-// AP模式返回配置页面, STA模式返回状态页面
+/**
+ * @brief 根路径处理器 - 根据当前WiFi模式返回对应页面
+ *
+ * URI: /
+ * 方法: GET
+ * 说明: AP模式返回配置页面，STA模式返回状态页面
+ */
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
     wifi_info_t *info = wifi_manager_get_info();
@@ -115,7 +121,12 @@ static esp_err_t root_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// 配置页面处理函数 - 强制显示WiFi配置页面
+/**
+ * @brief 配置页面处理器 - 强制显示WiFi配置页面
+ *
+ * URI: /config
+ * 方法: GET
+ */
 static esp_err_t config_get_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "GET /config -> serving config page");
@@ -123,8 +134,13 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// 保存WiFi凭证处理函数 - 处理POST请求
-// 解析表单数据, 保存到NVS, 重启设备
+/**
+ * @brief 保存WiFi凭证处理器 - 处理POST请求，保存凭证并重启
+ *
+ * URI: /save
+ * 方法: POST
+ * 说明: 解析表单数据，保存到NVS，重启设备进入STA模式
+ */
 static esp_err_t save_post_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "POST /save -> received WiFi config submission");
@@ -186,8 +202,13 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// 状态API处理函数 - 返回JSON格式的设备状态
-// 供前端页面每2秒轮询更新状态
+/**
+ * @brief 状态API处理器 - 返回JSON格式的设备状态
+ *
+ * URI: /api/status
+ * 方法: GET
+ * 说明: 供前端页面轮询更新状态
+ */
 static esp_err_t status_get_handler(httpd_req_t *req)
 {
     wifi_info_t *info = wifi_manager_get_info();
@@ -210,7 +231,12 @@ static esp_err_t status_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// 重连处理函数 - 触发WiFi重连
+/**
+ * @brief 重连WiFi处理器 - 触发WiFi重新连接
+ *
+ * URI: /reconnect
+ * 方法: GET
+ */
 static esp_err_t reconnect_get_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "GET /reconnect -> triggering WiFi reconnect");
@@ -228,6 +254,12 @@ static esp_err_t reconnect_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+/**
+ * @brief 重置处理器 - 清除WiFi凭证并重启进入AP模式
+ *
+ * URI: /reset
+ * 方法: GET
+ */
 static esp_err_t reset_get_handler(httpd_req_t *req)
 {
     ESP_LOGW(TAG, "GET /reset -> clearing credentials and rebooting to AP mode");
@@ -246,6 +278,91 @@ static esp_err_t reset_get_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "Rebooting now...");
     esp_restart();
     
+    return ESP_OK;
+}
+
+/**
+ * @brief RSS条目HTML页面样式（嵌入式，避免额外文件请求）
+ */
+#define RSS_HTML_STYLE "<style>" \
+    "body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;padding:20px;background:#f5f5f5}" \
+    ".card{background:#fff;border-radius:8px;padding:30px;box-shadow:0 2px 10px rgba(0,0,0,.1)}" \
+    "h1{color:#333;border-bottom:2px solid #007bff;padding-bottom:10px}" \
+    "h2{color:#555;margin-top:25px;font-size:18px}" \
+    ".meta{color:#888;font-size:13px;margin-bottom:20px}" \
+    ".link-box{background:#e9ecef;padding:15px;border-radius:4px;word-break:break-all}" \
+    ".link-box a{color:#007bff;word-break:break-all}" \
+    ".btn{display:inline-block;padding:10px 20px;background:#007bff;color:#fff;text-decoration:none;border-radius:4px;margin-top:20px}" \
+    ".btn:hover{background:#0056b3}" \
+    ".no-data{padding:40px;text-align:center;color:#666}" \
+    ".no-data p{margin:15px 0 0}" \
+    ".back{margin-top:30px}" \
+    "</style>"
+
+/**
+ * @brief RSS条目API处理器 - 以HTML页面展示当前缓存的RSS条目
+ *
+ * URI: /api/rss
+ * 方法: GET
+ * 返回: HTML页面，显示title、link、pubDate信息
+ */
+static esp_err_t rss_item_get_handler(httpd_req_t *req)
+{
+    rss_cached_item_t *item = rss_reader_get_cached_item();
+
+    char html[2048];
+    int len;
+
+    if (item->valid) {
+        len = snprintf(html, sizeof(html),
+            "<!DOCTYPE html>"
+            "<html><head>"
+            "<meta charset=\"UTF-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<title>RSS Item</title>"
+            RSS_HTML_STYLE
+            "</head><body>"
+            "<div class=\"card\">"
+            "<h1>RSS Item</h1>"
+            "<p class=\"meta\">随机选取，当前缓存</p>"
+            "<h2>Title</h2>"
+            "<p>%s</p>"
+            "<h2>Link</h2>"
+            "<div class=\"link-box\"><a href=\"%s\" target=\"_blank\">%s</a></div>"
+            "<h2>PubDate</h2>"
+            "<p>%s</p>"
+            "<a class=\"btn\" href=\"/api/rss\" onclick=\"location.reload();return false;\">Refresh</a>"
+            "<div class=\"back\">"
+            "<a href=\"/\">&larr; Back to Home</a>"
+            "</div>"
+            "</div>"
+            "</body></html>",
+            item->title, item->link, item->link, item->pubDate);
+    } else {
+        len = snprintf(html, sizeof(html),
+            "<!DOCTYPE html>"
+            "<html><head>"
+            "<meta charset=\"UTF-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<title>RSS Item</title>"
+            RSS_HTML_STYLE
+            "</head><body>"
+            "<div class=\"card\">"
+            "<h1>RSS Item</h1>"
+            "<div class=\"no-data\">"
+            "<p>No RSS item available yet.</p>"
+            "<p>Please wait for the RSS reader to fetch data.</p>"
+            "</div>"
+            "<a class=\"btn\" href=\"/api/rss\">Refresh</a>"
+            "<div class=\"back\">"
+            "<a href=\"/\">&larr; Back to Home</a>"
+            "</div>"
+            "</div>"
+            "</body></html>");
+    }
+
+    httpd_resp_set_type(req, "text/html; charset=UTF-8");
+    httpd_resp_send(req, html, len);
     return ESP_OK;
 }
 
@@ -286,8 +403,18 @@ static const httpd_uri_t reset_uri = {
     .handler = reset_get_handler,
 };
 
-// 启动HTTP服务器
-// 注册所有URI处理器, 开始监听80端口
+static const httpd_uri_t rss_item_uri = {
+    .uri = "/api/rss",
+    .method = HTTP_GET,
+    .handler = rss_item_get_handler,
+};
+
+/**
+ * @brief 启动HTTP服务器
+ *
+ * 注册所有URI处理器，监听80端口
+ * @return HTTP服务器句柄，启动失败返回NULL
+ */
 httpd_handle_t http_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -297,13 +424,14 @@ httpd_handle_t http_server_start(void)
     ESP_LOGI(TAG, "Starting HTTP server on port: %d", config.server_port);
 
     if (httpd_start(&server, &config) == ESP_OK) {
-        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /reconnect, /reset");
+        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /api/rss, /reconnect, /reset");
         httpd_register_uri_handler(server, &root_uri);
         httpd_register_uri_handler(server, &config_uri);
         httpd_register_uri_handler(server, &save_uri);
         httpd_register_uri_handler(server, &status_uri);
         httpd_register_uri_handler(server, &reconnect_uri);
         httpd_register_uri_handler(server, &reset_uri);
+        httpd_register_uri_handler(server, &rss_item_uri);
         ESP_LOGI(TAG, "HTTP server started successfully");
     } else {
         ESP_LOGE(TAG, "Failed to start HTTP server");
@@ -312,7 +440,11 @@ httpd_handle_t http_server_start(void)
     return server;
 }
 
-// 停止HTTP服务器
+/**
+ * @brief 停止HTTP服务器
+ *
+ * @param server HTTP服务器句柄
+ */
 void http_server_stop(httpd_handle_t server)
 {
     if (server) {
