@@ -1,20 +1,25 @@
 /**
  * @file http_server.c
- * @brief HTTP Server 实现 - 配网页面和管理页面
+ * @brief HTTP Server 实现 - 配网页面和管理页面 (SPIFFS静态文件)
  */
 
 #include <string.h>
+#include <stdlib.h>
 #include <sys/param.h>
 #include <esp_log.h>
 #include <esp_http_server.h>
 #include <esp_ota_ops.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+#include <esp_spiffs.h>
 #include "http_server.h"
 #include "wifi_manager.h"
 #include "rss_reader.h"
 
 static const char *TAG = "HTTP_SERVER";
+
+#define SPIFFS_BASE_PATH "/www"
+#define SPIFFS_PARTITION_LABEL "storage"
 
 static void url_decode(char *str)
 {
@@ -34,91 +39,69 @@ static void url_decode(char *str)
     *dst = '\0';
 }
 
-// HTML页面模板 - 公共头部
-#define HTML_HEADER "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>ESP32 WiFi Config</title>"
-// HTML页面模板 - 样式
-#define HTML_STYLE "<style>body{font-family:Arial,sans-serif;max-width:600px;margin:50px auto;padding:20px;background:#f5f5f5} .card{background:#fff;border-radius:8px;padding:30px;box-shadow:0 2px 10px rgba(0,0,0,.1)} h1{color:#333;text-align:center} h2{color:#666;margin-top:0} label{display:block;margin:15px 0 5px;color:#555} input{width:100%;padding:12px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:16px} button{width:100%;padding:15px;margin-top:20px;background:#007bff;color:#fff;border:none;border-radius:4px;font-size:16px;cursor:pointer} button:hover{background:#0056b3} .btn-secondary{background:#6c757d}.btn-secondary:hover{background:#5a6268} .btn-danger{background:#dc3545}.btn-danger:hover{background:#c82333} .status{margin-top:20px;padding:15px;border-radius:4px;text-align:center} .status-connected{background:#d4edda;color:#155724} .status-disconnected{background:#f8d7da;color:#721c24} .status-ap{background:#cce5ff;color:#004085} .info{margin-top:20px;padding:15px;background:#e9ecef;border-radius:4px} .info p{margin:8px 0}</style>"
-// HTML页面模板 - 脚本开始
-#define HTML_SCRIPT "</head><body><div class=\"card\">"
-// HTML页面模板 - 结束
-#define HTML_END "</div></body></html>"
+static const char *get_content_type(const char *filename)
+{
+    const char *ext = strrchr(filename, '.');
+    if (!ext) return "application/octet-stream";
+    if (strcmp(ext, ".html") == 0) return "text/html; charset=UTF-8";
+    if (strcmp(ext, ".css") == 0) return "text/css";
+    if (strcmp(ext, ".js") == 0) return "application/javascript";
+    if (strcmp(ext, ".json") == 0) return "application/json";
+    if (strcmp(ext, ".png") == 0) return "image/png";
+    if (strcmp(ext, ".ico") == 0) return "image/x-icon";
+    return "application/octet-stream";
+}
 
-// WiFi配置页面HTML - AP模式下显示
-static const char *config_page_html = 
-    HTML_HEADER HTML_STYLE HTML_SCRIPT
-    "<h1>WiFi Configuration</h1>"
-    "<h2>Configure your WiFi Network</h2>"
-    "<form method=\"POST\" action=\"/save\">"
-    "<label>SSID (WiFi Name)</label>"
-    "<input type=\"text\" name=\"ssid\" required placeholder=\"Enter WiFi SSID\">"
-    "<label>Password</label>"
-    "<input type=\"password\" name=\"password\" placeholder=\"Enter WiFi Password\">"
-    "<button type=\"submit\">Save & Connect</button>"
-    "</form>"
-    HTML_END;
+static esp_err_t serve_static_file(httpd_req_t *req, const char *filename)
+{
+    char filepath[64];
+    snprintf(filepath, sizeof(filepath), SPIFFS_BASE_PATH "/%s", filename);
 
-// 状态页面HTML - STA模式下显示, 包含实时状态更新
-static const char *status_page_html = 
-    HTML_HEADER HTML_STYLE HTML_SCRIPT
-    "<h1>ESP32 Status</h1>"
-    "<div id=\"status\"></div>"
-    "<div class=\"info\">"
-    "<p><strong>Device IP:</strong> <span id=\"ip\"></span></p>"
-    "<p><strong>SSID:</strong> <span id=\"ssid\"></span></p>"
-    "<p><strong>Mode:</strong> <span id=\"mode\"></span></p>"
-    "<p><strong>Free Heap:</strong> <span id=\"heap\"></span></p>"
-    "<p><strong>Uptime:</strong> <span id=\"uptime\"></span></p>"
-    "</div>"
-    "<button class=\"btn-secondary\" onclick=\"location.href='/config'\">Configure WiFi</button>"
-    "<button class=\"btn-secondary\" onclick=\"location.href='/reconnect'\">Reconnect</button>"
-    "<button class=\"btn-danger\" onclick=\"location.href='/reset'\">Reset to AP Mode</button>"
-    "<script>"
-    "function updateStatus(){"
-    "fetch('/api/status').then(r=>r.json()).then(d=>{"
-    "document.getElementById('ip').innerText=d.ip||'N/A';"
-    "document.getElementById('ssid').innerText=d.ssid||'N/A';"
-    "document.getElementById('mode').innerText=d.mode==0?'STA':'AP';"
-    "document.getElementById('heap').innerText=d.heap+' bytes';"
-    "document.getElementById('uptime').innerText=d.uptime+'s';"
-    "var s=document.getElementById('status');"
-    "if(d.status==2)s.className='status status-connected',s.innerText='Connected';"
-    "else if(d.status==4)s.className='status status-ap',s.innerText='AP Mode';"
-    "else s.className='status status-disconnected',s.innerText='Disconnected';"
-    "}).catch(()=>{});"
-    "}"
-    "setInterval(updateStatus,2000);"
-    "updateStatus();"
-    "</script>"
-    HTML_END;
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        ESP_LOGW(TAG, "File not found: %s", filepath);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
 
-// 保存成功页面HTML
-static const char *success_page_html = 
-    HTML_HEADER HTML_STYLE HTML_SCRIPT
-    "<h1>WiFi Saved!</h1>"
-    "<div class=\"status status-connected\">Connecting to WiFi...</div>"
-    "<p>Device will restart and connect to your WiFi network.</p>"
-    "<script>setTimeout(()=>location.href='/',5000);</script>"
-    HTML_END;
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *buf = malloc(fsize);
+    if (!buf) {
+        ESP_LOGE(TAG, "Failed to allocate %ld bytes for %s", fsize, filename);
+        fclose(f);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    fread(buf, 1, fsize, f);
+    fclose(f);
+
+    httpd_resp_set_type(req, get_content_type(filename));
+    httpd_resp_send(req, buf, fsize);
+    free(buf);
+    return ESP_OK;
+}
 
 /**
  * @brief 根路径处理器 - 根据当前WiFi模式返回对应页面
  *
  * URI: /
  * 方法: GET
- * 说明: AP模式返回配置页面，STA模式返回状态页面
  */
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
     wifi_info_t *info = wifi_manager_get_info();
-    
+
     if (info->mode == MODE_AP) {
-        ESP_LOGI(TAG, "GET / -> serving config page (AP mode)");
-        httpd_resp_send(req, config_page_html, HTTPD_RESP_USE_STRLEN);
+        ESP_LOGI(TAG, "GET / -> serving index.html (AP mode)");
+        return serve_static_file(req, "index.html");
     } else {
-        ESP_LOGI(TAG, "GET / -> serving status page (STA mode)");
-        httpd_resp_send(req, status_page_html, HTTPD_RESP_USE_STRLEN);
+        ESP_LOGI(TAG, "GET / -> serving status.html (STA mode)");
+        return serve_static_file(req, "status.html");
     }
-    return ESP_OK;
 }
 
 /**
@@ -129,9 +112,8 @@ static esp_err_t root_get_handler(httpd_req_t *req)
  */
 static esp_err_t config_get_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "GET /config -> serving config page");
-    httpd_resp_send(req, config_page_html, HTTPD_RESP_USE_STRLEN);
-    return ESP_OK;
+    ESP_LOGI(TAG, "GET /config -> serving index.html");
+    return serve_static_file(req, "index.html");
 }
 
 /**
@@ -139,7 +121,6 @@ static esp_err_t config_get_handler(httpd_req_t *req)
  *
  * URI: /save
  * 方法: POST
- * 说明: 解析表单数据，保存到NVS，重启设备进入STA模式
  */
 static esp_err_t save_post_handler(httpd_req_t *req)
 {
@@ -147,7 +128,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     char content[512];
     char ssid[32] = {0};
     char password[64] = {0};
-    
+
     int ret = httpd_req_recv(req, content, sizeof(content) - 1);
     if (ret <= 0) {
         ESP_LOGE(TAG, "POST /save -> failed to receive POST data (ret=%d)", ret);
@@ -156,8 +137,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     }
     content[ret] = '\0';
     ESP_LOGI(TAG, "POST /save -> raw form data: %s", content);
-    
-    // 解析URL编码的表单数据
+
     char *ptr = content;
     while (*ptr) {
         while (*ptr == '&') ptr++;
@@ -180,25 +160,24 @@ static esp_err_t save_post_handler(httpd_req_t *req)
             ptr++;
         }
     }
-    
+
     if (strlen(ssid) == 0) {
         ESP_LOGE(TAG, "POST /save -> empty SSID, rejecting");
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID is required");
         return ESP_FAIL;
     }
-    
+
     ESP_LOGI(TAG, "POST /save -> parsed: ssid=%s, password=%s", ssid, password);
     ESP_LOGI(TAG, "Saving WiFi credentials and rebooting to STA mode...");
     wifi_manager_save_credentials(ssid, password);
-    
-    // 返回成功页面
-    httpd_resp_send(req, success_page_html, HTTPD_RESP_USE_STRLEN);
-    
+
+    serve_static_file(req, "success.html");
+
     // 延迟2秒后重启, 让浏览器有时间显示成功页面
     ESP_LOGI(TAG, "Rebooting to STA mode...");
     vTaskDelay(pdMS_TO_TICKS(2000));
     esp_restart();
-    
+
     return ESP_OK;
 }
 
@@ -207,12 +186,11 @@ static esp_err_t save_post_handler(httpd_req_t *req)
  *
  * URI: /api/status
  * 方法: GET
- * 说明: 供前端页面轮询更新状态
  */
 static esp_err_t status_get_handler(httpd_req_t *req)
 {
     wifi_info_t *info = wifi_manager_get_info();
-    
+
     char json[256];
     int len = snprintf(json, sizeof(json),
         "{\"status\":%d,\"mode\":%d,\"ip\":\"%s\",\"ssid\":\"%s\",\"ap_ssid\":\"%s\","
@@ -225,7 +203,7 @@ static esp_err_t status_get_handler(httpd_req_t *req)
         (unsigned int)esp_get_free_heap_size(),
         (unsigned int)(esp_timer_get_time() / 1000000)
     );
-    
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json, len);
     return ESP_OK;
@@ -240,17 +218,8 @@ static esp_err_t status_get_handler(httpd_req_t *req)
 static esp_err_t reconnect_get_handler(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "GET /reconnect -> triggering WiFi reconnect");
-    const char *html = 
-        HTML_HEADER HTML_STYLE HTML_SCRIPT
-        "<h1>Reconnecting...</h1>"
-        "<div class=\"status status-disconnected\">Attempting to reconnect...</div>"
-        "<script>setTimeout(()=>location.href='/',5000);</script>"
-        HTML_END;
-    
-    httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
-    
+    serve_static_file(req, "reconnect.html");
     wifi_manager_reconnect();
-    
     return ESP_OK;
 }
 
@@ -263,48 +232,22 @@ static esp_err_t reconnect_get_handler(httpd_req_t *req)
 static esp_err_t reset_get_handler(httpd_req_t *req)
 {
     ESP_LOGW(TAG, "GET /reset -> clearing credentials and rebooting to AP mode");
-    const char *html = 
-        HTML_HEADER HTML_STYLE HTML_SCRIPT
-        "<h1>Resetting...</h1>"
-        "<div class=\"status status-ap\">Switching to AP mode...</div>"
-        "<script>setTimeout(()=>location.href='/',5000);</script>"
-        HTML_END;
-    
-    httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
-    
+    serve_static_file(req, "reset.html");
+
     wifi_manager_clear_credentials();
-    
+
     vTaskDelay(pdMS_TO_TICKS(1000));
     ESP_LOGI(TAG, "Rebooting now...");
     esp_restart();
-    
+
     return ESP_OK;
 }
 
 /**
- * @brief RSS条目HTML页面样式（嵌入式，避免额外文件请求）
- */
-#define RSS_HTML_STYLE "<style>" \
-    "body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;padding:20px;background:#f5f5f5}" \
-    ".card{background:#fff;border-radius:8px;padding:30px;box-shadow:0 2px 10px rgba(0,0,0,.1)}" \
-    "h1{color:#333;border-bottom:2px solid #007bff;padding-bottom:10px}" \
-    "h2{color:#555;margin-top:25px;font-size:18px}" \
-    ".meta{color:#888;font-size:13px;margin-bottom:20px}" \
-    ".link-box{background:#e9ecef;padding:15px;border-radius:4px;word-break:break-all}" \
-    ".link-box a{color:#007bff;word-break:break-all}" \
-    ".btn{display:inline-block;padding:10px 20px;background:#007bff;color:#fff;text-decoration:none;border-radius:4px;margin-top:20px}" \
-    ".btn:hover{background:#0056b3}" \
-    ".no-data{padding:40px;text-align:center;color:#666}" \
-    ".no-data p{margin:15px 0 0}" \
-    ".back{margin-top:30px}" \
-    "</style>"
-
-/**
- * @brief RSS条目API处理器 - 以HTML页面展示当前缓存的RSS条目
+ * @brief RSS条目HTML页面处理器 - 动态生成HTML并引用SPIFFS中的CSS
  *
  * URI: /api/rss
  * 方法: GET
- * 返回: HTML页面，显示title、link、pubDate信息
  */
 static esp_err_t rss_item_get_handler(httpd_req_t *req)
 {
@@ -320,11 +263,11 @@ static esp_err_t rss_item_get_handler(httpd_req_t *req)
             "<meta charset=\"UTF-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<title>RSS Item</title>"
-            RSS_HTML_STYLE
+            "<link rel=\"stylesheet\" href=\"/styles.css\">"
             "</head><body>"
             "<div class=\"card\">"
             "<h1>RSS Item</h1>"
-            "<p class=\"meta\">随机选取，当前缓存</p>"
+            "<p class=\"meta\">Random from cache</p>"
             "<h2>Title</h2>"
             "<p>%s</p>"
             "<h2>Link</h2>"
@@ -345,7 +288,7 @@ static esp_err_t rss_item_get_handler(httpd_req_t *req)
             "<meta charset=\"UTF-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<title>RSS Item</title>"
-            RSS_HTML_STYLE
+            "<link rel=\"stylesheet\" href=\"/styles.css\">"
             "</head><body>"
             "<div class=\"card\">"
             "<h1>RSS Item</h1>"
@@ -366,7 +309,24 @@ static esp_err_t rss_item_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// URI路由定义
+/**
+ * @brief 静态文件捕获处理器 - 服务SPIFFS中的任意静态文件
+ *
+ * URI: wildcard catch-all
+ * 方法: GET
+ */
+static esp_err_t static_file_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "GET %s -> serving static file", req->uri);
+    // URI starts with '/', skip it for filename lookup
+    const char *filename = req->uri + 1;
+    if (*filename == '\0') {
+        filename = "index.html";
+    }
+    return serve_static_file(req, filename);
+}
+
+// URI路由定义 - 具体路由在前, 通配fallback在最后
 static const httpd_uri_t root_uri = {
     .uri = "/",
     .method = HTTP_GET,
@@ -409,22 +369,62 @@ static const httpd_uri_t rss_item_uri = {
     .handler = rss_item_get_handler,
 };
 
+static const httpd_uri_t static_file_uri = {
+    .uri = "/*",
+    .method = HTTP_GET,
+    .handler = static_file_handler,
+};
+
+/**
+ * @brief 挂载SPIFFS分区
+ *
+ * @return esp_err_t ESP_OK on success
+ */
+static esp_err_t spiffs_mount_storage(void)
+{
+    esp_vfs_spiffs_conf_t conf = {
+        .base_path = SPIFFS_BASE_PATH,
+        .partition_label = SPIFFS_PARTITION_LABEL,
+        .max_files = 5,
+        .format_if_mount_failed = false,
+    };
+
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount SPIFFS partition '%s' (%s)",
+                 SPIFFS_PARTITION_LABEL, esp_err_to_name(ret));
+        return ret;
+    }
+
+    size_t total = 0, used = 0;
+    ret = esp_spiffs_info(conf.partition_label, &total, &used);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "SPIFFS mounted at %s: %d/%d KB used",
+                 SPIFFS_BASE_PATH, (int)(used / 1024), (int)(total / 1024));
+    }
+
+    return ESP_OK;
+}
+
 /**
  * @brief 启动HTTP服务器
  *
- * 注册所有URI处理器，监听80端口
+ * 挂载SPIFFS, 注册所有URI处理器，监听80端口
  * @return HTTP服务器句柄，启动失败返回NULL
  */
 httpd_handle_t http_server_start(void)
 {
+    spiffs_mount_storage();
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
+    config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_handle_t server = NULL;
 
     ESP_LOGI(TAG, "Starting HTTP server on port: %d", config.server_port);
 
     if (httpd_start(&server, &config) == ESP_OK) {
-        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /api/rss, /reconnect, /reset");
+        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /api/rss, /reconnect, /reset, /*");
         httpd_register_uri_handler(server, &root_uri);
         httpd_register_uri_handler(server, &config_uri);
         httpd_register_uri_handler(server, &save_uri);
@@ -432,6 +432,7 @@ httpd_handle_t http_server_start(void)
         httpd_register_uri_handler(server, &reconnect_uri);
         httpd_register_uri_handler(server, &reset_uri);
         httpd_register_uri_handler(server, &rss_item_uri);
+        httpd_register_uri_handler(server, &static_file_uri);
         ESP_LOGI(TAG, "HTTP server started successfully");
     } else {
         ESP_LOGE(TAG, "Failed to start HTTP server");

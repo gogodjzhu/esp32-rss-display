@@ -1,0 +1,26 @@
+body{font-family:Arial,sans-serif;max-width:600px;margin:50px auto;padding:20px;background:#f5f5f5}
+.card{background:#fff;border-radius:8px;padding:30px;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+h1{color:#333;text-align:center}
+h2{color:#666;margin-top:0}
+label{display:block;margin:15px 0 5px;color:#555}
+input{width:100%;padding:12px;border:1px solid #ddd;border-radius:4px;box-sizing:border-box;font-size:16px}
+button{width:100%;padding:15px;margin-top:20px;background:#007bff;color:#fff;border:none;border-radius:4px;font-size:16px;cursor:pointer}
+button:hover{background:#0056b3}
+.btn-secondary{background:#6c757d}
+.btn-secondary:hover{background:#5a6268}
+.btn-danger{background:#dc3545}
+.btn-danger:hover{background:#c82333}
+.status{margin-top:20px;padding:15px;border-radius:4px;text-align:center}
+.status-connected{background:#d4edda;color:#155724}
+.status-disconnected{background:#f8d7da;color:#721c24}
+.status-ap{background:#cce5ff;color:#004085}
+.info{margin-top:20px;padding:15px;background:#e9ecef;border-radius:4px}
+.info p{margin:8px 0}
+.link-box{background:#e9ecef;padding:15px;border-radius:4px;word-break:break-all}
+.link-box a{color:#007bff;word-break:break-all}
+.btn{display:inline-block;padding:10px 20px;background:#007bff;color:#fff;text-decoration:none;border-radius:4px;margin-top:20px}
+.btn:hover{background:#0056b3}
+.no-data{padding:40px;text-align:center;color:#666}
+.no-data p{margin:15px 0 0}
+.back{margin-top:30px}
+.meta{color:#888;font-size:13px;margin-bottom:20px}

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32 WiFi Config</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="card">
+<h1>WiFi Configuration</h1>
+<h2>Configure your WiFi Network</h2>
+<form method="POST" action="/save">
+<label>SSID (WiFi Name)</label>
+<input type="text" name="ssid" required placeholder="Enter WiFi SSID">
+<label>Password</label>
+<input type="password" name="password" placeholder="Enter WiFi Password">
+<button type="submit">Save & Connect</button>
+</form>
+</div>
+</body>
+</html>

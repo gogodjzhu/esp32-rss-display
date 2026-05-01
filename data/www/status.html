@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32 Status</title>
+<link rel="stylesheet" href="/styles.css">
+<script src="/status.js"></script>
+</head>
+<body>
+<div class="card">
+<h1>ESP32 Status</h1>
+<div id="status"></div>
+<div class="info">
+<p><strong>Device IP:</strong> <span id="ip"></span></p>
+<p><strong>SSID:</strong> <span id="ssid"></span></p>
+<p><strong>Mode:</strong> <span id="mode"></span></p>
+<p><strong>Free Heap:</strong> <span id="heap"></span></p>
+<p><strong>Uptime:</strong> <span id="uptime"></span></p>
+</div>
+<button class="btn-secondary" onclick="location.href='/config'">Configure WiFi</button>
+<button class="btn-secondary" onclick="location.href='/reconnect'">Reconnect</button>
+<button class="btn-danger" onclick="location.href='/reset'">Reset to AP Mode</button>
+</div>
+</body>
+</html>
