@@ -1,0 +1,5 @@
+{
+  "name": "ui_animation",
+  "version": "1.0.0",
+  "description": "ST7789 显示屏驱动 + LVGL UI 动画库（Loading/进度条/错误状态）"
+}
