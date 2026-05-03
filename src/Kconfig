@@ -38,4 +38,16 @@ config RSS_FETCH_INTERVAL_SEC
     help
         Interval in seconds between RSS feed fetches.
 
+config BACKEND_URL
+    string "Backend server URL"
+    default "http://192.168.3.106:8080"
+    help
+        后端服务器地址，用于获取图片 URL。
+
+config DEVICE_ID
+    string "Device ID"
+    default "test-device-001"
+    help
+        设备唯一标识符，用于后端 API 路径。
+
 endmenu

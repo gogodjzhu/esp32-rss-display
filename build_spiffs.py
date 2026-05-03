@@ -16,7 +16,7 @@ output_file = os.path.join(build_dir, "storage.bin")
 
 cmd = [
     sys.executable, spiffsgen,
-    "0xE0000",
+    "0x80000",  # storage 分区大小，与 partitions.csv 中 storage 大小一致
     data_dir,
     output_file,
     "--page-size", "256",
@@ -35,5 +35,5 @@ fsize = os.path.getsize(output_file)
 print("SPIFFS image generated: %s (%d bytes)" % (output_file, fsize))
 
 # Register storage.bin for flashing via PlatformIO's FLASH_EXTRA_IMAGES
-env.Append(FLASH_EXTRA_IMAGES=[("0x110000", "$BUILD_DIR/storage.bin")])
-print("Registered storage.bin at offset 0x110000 for flashing")
+env.Append(FLASH_EXTRA_IMAGES=[("0x210000", "$BUILD_DIR/storage.bin")])
+print("Registered storage.bin at offset 0x210000 for flashing")
