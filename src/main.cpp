@@ -14,6 +14,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <driver/gpio.h>
 
 #include "ui_animation.h"
 #include "wifi_manager.h"
@@ -31,6 +33,51 @@ static const char *TAG = "MAIN";
 /* 进度条更新间隔（毫秒），越小越平滑 */
 #define PROGRESS_UPDATE_MS   100
 
+/* ---------- 按钮（GPIO9）相关 ---------- */
+
+/* 图片显示任务句柄，供 ISR 发送通知 */
+static TaskHandle_t s_display_task_handle = NULL;
+
+/**
+ * @brief GPIO9 中断服务函数（IRAM，下降沿触发）
+ *
+ * 带 300ms 软件防抖；触发后通过任务通知唤醒 image_display_task，
+ * 使其立即跳出倒计时循环并刷新图片。
+ */
+static void IRAM_ATTR gpio_button_isr(void *arg)
+{
+    /* 防抖：距上次触发不足 300ms 则忽略 */
+    static int64_t last_us = 0;
+    int64_t now = esp_timer_get_time();
+    if (now - last_us < 300000LL) return;
+    last_us = now;
+
+    /* 通知图片显示任务立即刷新 */
+    BaseType_t woken = pdFALSE;
+    if (s_display_task_handle != NULL) {
+        xTaskNotifyFromISR(s_display_task_handle, 1, eSetValueWithOverwrite, &woken);
+    }
+    portYIELD_FROM_ISR(woken);
+}
+
+/**
+ * @brief 初始化 GPIO9 为输入（内部上拉，下降沿中断）
+ */
+static void button_init(void)
+{
+    gpio_config_t cfg = {
+        .pin_bit_mask  = (1ULL << GPIO_NUM_9),
+        .mode          = GPIO_MODE_INPUT,
+        .pull_up_en    = GPIO_PULLUP_ENABLE,
+        .pull_down_en  = GPIO_PULLDOWN_DISABLE,
+        .intr_type     = GPIO_INTR_NEGEDGE,
+    };
+    gpio_config(&cfg);
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(GPIO_NUM_9, gpio_button_isr, NULL);
+    ESP_LOGI(TAG, "按钮 GPIO9 已初始化");
+}
+
 /* ---------- 图片显示任务 ---------- */
 
 static void image_display_task(void *pvParameters)
@@ -39,6 +86,9 @@ static void image_display_task(void *pvParameters)
 
     image_fetcher_init();
     ESP_LOGI(TAG, "图片显示任务启动");
+
+    /* 保存任务句柄，供按钮 ISR 发送通知 */
+    s_display_task_handle = xTaskGetCurrentTaskHandle();
 
     char url_buf[IMAGE_URL_BUF_LEN];
 
@@ -64,12 +114,18 @@ static void image_display_task(void *pvParameters)
             continue;
         }
 
-        /* 底部进度条平滑倒计时：每 100ms 更新一次，共 DISPLAY_INTERVAL_SEC * 10 步 */
+        /* 底部进度条平滑倒计时，每步等待 PROGRESS_UPDATE_MS 毫秒；
+         * 若按钮触发任务通知则立即跳出，马上刷新下一条 */
         int total_steps = DISPLAY_INTERVAL_SEC * (1000 / PROGRESS_UPDATE_MS);
+        ulTaskNotifyTake(pdTRUE, 0);  /* 清除可能残留的通知 */
         for (int t = 0; t <= total_steps; t++) {
             int percent = t * 100 / total_steps;
             ui_animation_update_bottom_bar(percent);
-            vTaskDelay(pdMS_TO_TICKS(PROGRESS_UPDATE_MS));
+            uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PROGRESS_UPDATE_MS));
+            if (notified > 0) {
+                ESP_LOGI(TAG, "按钮触发，立即刷新下一条图片");
+                break;
+            }
         }
     }
 }
@@ -107,6 +163,9 @@ extern "C" void app_main()
     }
 
     ESP_LOGI(TAG, "WiFi 已连接，启动 HTTP 管理服务器");
+
+    /* 初始化按钮 GPIO9，按下后立即刷新图片 */
+    button_init();
 
     /* 启动 HTTP 管理服务器（提供 /、/api/status、/reset 等页面） */
     httpd_handle_t http_server = http_server_start();
