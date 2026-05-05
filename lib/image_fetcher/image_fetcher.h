@@ -42,6 +42,17 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len);
  */
 esp_err_t image_fetcher_download_and_show(const char *url);
 
+/**
+ * @brief 向后端提交当前条目的评分
+ *
+ * 使用 image_fetcher_get_next_url 缓存的 item_id 发起请求。
+ * item_id 为 0 时直接返回 ESP_FAIL（不发请求，防止污染数据）。
+ *
+ * @param rating 评分值 1-5（0 时返回 ESP_FAIL）
+ * @return ESP_OK 提交成功（HTTP 2xx），ESP_FAIL 其他情况
+ */
+esp_err_t image_fetcher_submit_rating(int rating);
+
 #ifdef __cplusplus
 }
 #endif

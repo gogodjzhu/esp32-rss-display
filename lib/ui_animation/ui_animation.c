@@ -506,3 +506,36 @@ void ui_animation_show_rating_bar(int sel)
 
     #undef RGB24_TO_565_SWAPPED
 }
+
+/* ---------- 评分提交结果状态栏（直接写 TFT，复用底部 2px 区域） ---------- */
+
+/**
+ * @brief 显示评分提交结果状态栏
+ *
+ * 全行填充单一颜色覆盖底部 2px：
+ *   success=true  → 全绿 0x2ECC71
+ *   success=false → 全红 0xE74C3C
+ */
+void ui_animation_show_submit_bar(bool success)
+{
+    /* 将 24bit RGB 转为 RGB565 大端序（字节交换） */
+    #define RGB24_TO_565_SWAPPED(c) ({ \
+        uint8_t _r = ((c) >> 16) & 0xFF; \
+        uint8_t _g = ((c) >>  8) & 0xFF; \
+        uint8_t _b = ((c)      ) & 0xFF; \
+        uint16_t _v = ((_r & 0xF8) << 8) | ((_g & 0xFC) << 3) | (_b >> 3); \
+        (uint16_t)((_v >> 8) | (_v << 8)); \
+    })
+
+    uint16_t color = success
+        ? RGB24_TO_565_SWAPPED(0x2ECC71)   /* 绿：成功 */
+        : RGB24_TO_565_SWAPPED(0xE74C3C);  /* 红：失败 */
+
+    uint16_t row[TFT_WIDTH];
+    for (int x = 0; x < TFT_WIDTH; x++) row[x] = color;
+
+    ui_animation_write_row(0, TFT_HEIGHT - 2, row, TFT_WIDTH);
+    ui_animation_write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
+
+    #undef RGB24_TO_565_SWAPPED
+}

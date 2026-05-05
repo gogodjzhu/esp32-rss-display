@@ -88,17 +88,20 @@ static void button_init(void)
 /* ---------- 图片显示任务 ---------- */
 
 /**
- * @brief 提交评价（占位实现）
- * sel: 0=无评价, 1-5=评分（1最低, 5最高）
- * TODO: 后续替换为远端 HTTP 调用
+ * @brief 提交评分并显示结果状态栏
+ *
+ * 调用 image_fetcher_submit_rating，根据结果在底部 2px 显示绿色（成功）或
+ * 红色（失败）状态栏 1 秒，随后清空按钮队列（丢弃操作期间积压的事件）。
  */
-static void submit_rating(int sel)
+static void do_submit_and_show(int sel)
 {
-    if (sel == 0) {
-        ESP_LOGI(TAG, "评价提交（占位）：无评价");
-    } else {
-        ESP_LOGI(TAG, "评价提交（占位）：%d 分", sel);
-    }
+    esp_err_t err = image_fetcher_submit_rating(sel);
+    bool success  = (err == ESP_OK);
+    ui_animation_show_submit_bar(success);
+    ESP_LOGI(TAG, "评价提交%s：%d 分", success ? "成功" : "失败", sel);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    /* 清空评价及状态显示期间积压的按钮事件 */
+    { int64_t dummy; while (xQueueReceive(s_button_queue, &dummy, 0) == pdTRUE) {} }
 }
 
 static void image_display_task(void *pvParameters)
@@ -216,13 +219,13 @@ static void image_display_task(void *pvParameters)
 
                 if (state == DISPLAY_RATING) {
                     if (now - last_action_us >= 5000000LL) {
-                        /* 5 秒无操作：提交评价，退出评价模式，从保存步数继续 */
-                        submit_rating(sel);
+                        /* 5 秒无操作：提交评价并显示结果状态栏，退出评价模式 */
+                        do_submit_and_show(sel);
                         state = DISPLAY_NORMAL;
                         t     = t_saved;
                         /* 立即恢复进度条显示 */
                         ui_animation_update_bottom_bar(t * 100 / total_steps);
-                        ESP_LOGI(TAG, "评价超时提交，从步数 %d 继续倒计时", t_saved);
+                        ESP_LOGI(TAG, "评价完成，从步数 %d 继续倒计时", t_saved);
                     }
                     /* 评价模式下不推进 t */
                 } else {

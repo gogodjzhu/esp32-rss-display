@@ -12,6 +12,8 @@
 #ifndef UI_ANIMATION_H
 #define UI_ANIMATION_H
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,6 +42,10 @@ void ui_animation_prepare_image_mode(void);
 /* 在底部 2px 区域绘制评价指示条（直接写 TFT，绕过 LVGL）
  * sel: 0=NONE（两段均暗）, 1=LIKE（右半亮绿）, 2=DISLIKE（左半亮红） */
 void ui_animation_show_rating_bar(int sel);
+
+/* 显示评分提交结果状态栏（覆盖底部 2px，直接写 TFT）
+ * success=true：全绿 (0x2ECC71)；success=false：全红 (0xE74C3C) */
+void ui_animation_show_submit_bar(bool success);
 
 #ifdef __cplusplus
 }

@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
 #include <esp_log.h>
 #include <esp_http_client.h>
 #include <esp_heap_caps.h>
@@ -34,6 +35,9 @@ static const char *TAG = "IMG_FETCHER";
 
 /* ---------- JSON 响应接收缓冲区 ---------- */
 #define JSON_BUF_SIZE    512
+
+/* 当前展示条目 ID（由 image_fetcher_get_next_url 更新，0 表示未获取） */
+static uint32_t s_current_item_id = 0;
 
 typedef struct {
     char   buf[JSON_BUF_SIZE];
@@ -194,6 +198,23 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
     memcpy(url_buf, val_start, val_len);
     url_buf[val_len] = '\0';
     ESP_LOGI(TAG, "image_url: %s", url_buf);
+
+    /* 解析 item_id 字段（整数），缓存供评分提交使用 */
+    const char *id_key = "\"item_id\"";
+    char *id_pos = strstr(ctx.buf, id_key);
+    if (id_pos) {
+        char *colon = strchr(id_pos + strlen(id_key), ':');
+        if (colon) {
+            s_current_item_id = (uint32_t)strtoul(colon + 1, NULL, 10);
+            ESP_LOGI(TAG, "item_id: %" PRIu32, s_current_item_id);
+        } else {
+            s_current_item_id = 0;
+        }
+    } else {
+        ESP_LOGW(TAG, "JSON 中无 item_id 字段，评分提交将被跳过");
+        s_current_item_id = 0;
+    }
+
     return ESP_OK;
 }
 
@@ -306,5 +327,63 @@ esp_err_t image_fetcher_download_and_show(const char *url)
     free(pool);
     free(jpeg_buf);
     ESP_LOGI(TAG, "图片显示完成");
+    return ESP_OK;
+}
+
+/* ---------- 评分提交 ---------- */
+
+esp_err_t image_fetcher_submit_rating(int rating)
+{
+    /* item_id 或 rating 无效时直接失败，不发请求 */
+    if (s_current_item_id == 0) {
+        ESP_LOGW(TAG, "item_id 未获取，跳过评分提交");
+        return ESP_FAIL;
+    }
+    if (rating <= 0) {
+        ESP_LOGW(TAG, "rating=%d 无效，跳过评分提交", rating);
+        return ESP_FAIL;
+    }
+
+    /* 构造请求 URL */
+    char api_url[256];
+    snprintf(api_url, sizeof(api_url),
+             "%s/v1/item/%" PRIu32 "/rating", BACKEND_URL, s_current_item_id);
+
+    /* 构造 JSON body */
+    char body[128];
+    snprintf(body, sizeof(body),
+             "{\"rating\":%d,\"device_id\":\"%s\"}", rating, DEVICE_ID);
+
+    ESP_LOGI(TAG, "POST %s body=%s", api_url, body);
+
+    esp_http_client_config_t config = {
+        .url        = api_url,
+        .method     = HTTP_METHOD_POST,
+        .timeout_ms = 5000,
+    };
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) {
+        ESP_LOGE(TAG, "HTTP client 初始化失败");
+        return ESP_FAIL;
+    }
+
+    esp_http_client_set_header(client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(client, body, (int)strlen(body));
+
+    esp_err_t err = esp_http_client_perform(client);
+    int status    = esp_http_client_get_status_code(client);
+    esp_http_client_cleanup(client);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "评分 HTTP 请求失败: %s", esp_err_to_name(err));
+        return ESP_FAIL;
+    }
+    if (status < 200 || status >= 300) {
+        ESP_LOGE(TAG, "评分 HTTP 状态码: %d", status);
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "评分提交成功，item_id=%" PRIu32 " rating=%d", s_current_item_id, rating);
     return ESP_OK;
 }
