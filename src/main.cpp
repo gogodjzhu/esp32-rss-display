@@ -13,6 +13,7 @@
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/queue.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
@@ -38,24 +39,27 @@ static const char *TAG = "MAIN";
 /* 图片显示任务句柄，供 ISR 发送通知 */
 static TaskHandle_t s_display_task_handle = NULL;
 
+/* 按钮事件队列，元素为 int64_t 时间戳（微秒） */
+static QueueHandle_t s_button_queue = NULL;
+
 /**
  * @brief GPIO9 中断服务函数（IRAM，下降沿触发）
  *
- * 带 300ms 软件防抖；触发后通过任务通知唤醒 image_display_task，
- * 使其立即跳出倒计时循环并刷新图片。
+ * 带 50ms 软件防抖；触发后将当前时间戳（微秒）发送到 s_button_queue，
+ * 由 image_display_task 在任务上下文完成双击检测和手势判断。
  */
 static void IRAM_ATTR gpio_button_isr(void *arg)
 {
-    /* 防抖：距上次触发不足 300ms 则忽略 */
+    /* 防抖：距上次触发不足 50ms 则忽略 */
     static int64_t last_us = 0;
     int64_t now = esp_timer_get_time();
-    if (now - last_us < 300000LL) return;
+    if (now - last_us < 50000LL) return;
     last_us = now;
 
-    /* 通知图片显示任务立即刷新 */
+    /* 将时间戳入队，供任务上下文做双击判断 */
     BaseType_t woken = pdFALSE;
-    if (s_display_task_handle != NULL) {
-        xTaskNotifyFromISR(s_display_task_handle, 1, eSetValueWithOverwrite, &woken);
+    if (s_button_queue != NULL) {
+        xQueueSendFromISR(s_button_queue, &now, &woken);
     }
     portYIELD_FROM_ISR(woken);
 }
@@ -65,6 +69,9 @@ static void IRAM_ATTR gpio_button_isr(void *arg)
  */
 static void button_init(void)
 {
+    /* 创建按钮事件队列（深度 4，元素为 int64_t 时间戳） */
+    s_button_queue = xQueueCreate(4, sizeof(int64_t));
+
     gpio_config_t cfg = {
         .pin_bit_mask  = (1ULL << GPIO_NUM_9),
         .mode          = GPIO_MODE_INPUT,
@@ -80,6 +87,20 @@ static void button_init(void)
 
 /* ---------- 图片显示任务 ---------- */
 
+/**
+ * @brief 提交评价（占位实现）
+ * sel: 0=无评价, 1-5=评分（1最低, 5最高）
+ * TODO: 后续替换为远端 HTTP 调用
+ */
+static void submit_rating(int sel)
+{
+    if (sel == 0) {
+        ESP_LOGI(TAG, "评价提交（占位）：无评价");
+    } else {
+        ESP_LOGI(TAG, "评价提交（占位）：%d 分", sel);
+    }
+}
+
 static void image_display_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -87,10 +108,26 @@ static void image_display_task(void *pvParameters)
     image_fetcher_init();
     ESP_LOGI(TAG, "图片显示任务启动");
 
-    /* 保存任务句柄，供按钮 ISR 发送通知 */
+    /* 保存任务句柄（保留，便于未来扩展） */
     s_display_task_handle = xTaskGetCurrentTaskHandle();
 
+    /* 清空启动时可能残留的按钮事件 */
+    {
+        int64_t dummy;
+        while (xQueueReceive(s_button_queue, &dummy, 0) == pdTRUE) {}
+    }
+
     char url_buf[IMAGE_URL_BUF_LEN];
+
+    /* 评价状态机 */
+    typedef enum { DISPLAY_NORMAL, DISPLAY_RATING } display_state_t;
+    display_state_t state              = DISPLAY_NORMAL;
+    int             sel                = 0;           /* 当前评分 0=无, 1-5=分值 */
+    bool            waiting_second     = false;       /* 是否正在等待第二次点击（双击检测） */
+    int64_t         first_click_us     = 0;           /* 第一次点击的时间戳 */
+    int64_t         last_action_us     = 0;           /* 最后一次操作时间戳（用于 5 秒超时） */
+    int64_t         last_rating_act_us = 0;           /* 评价模式最后一次评分操作时间戳（防抖） */
+    int             t_saved            = 0;           /* 进入评价模式时保存的倒计时步数 */
 
     while (true) {
         /* 获取下一条图片 URL */
@@ -114,17 +151,83 @@ static void image_display_task(void *pvParameters)
             continue;
         }
 
-        /* 底部进度条平滑倒计时，每步等待 PROGRESS_UPDATE_MS 毫秒；
-         * 若按钮触发任务通知则立即跳出，马上刷新下一条 */
+        /* 重置状态（新图片展示时退出残留的评价模式，重置双击检测） */
+        state              = DISPLAY_NORMAL;
+        sel                = 0;
+        waiting_second     = false;
+        last_rating_act_us = 0;
+
+        /* 底部进度条倒计时；评价模式下暂停推进，5 秒超时后继续 */
         int total_steps = DISPLAY_INTERVAL_SEC * (1000 / PROGRESS_UPDATE_MS);
-        ulTaskNotifyTake(pdTRUE, 0);  /* 清除可能残留的通知 */
-        for (int t = 0; t <= total_steps; t++) {
-            int percent = t * 100 / total_steps;
-            ui_animation_update_bottom_bar(percent);
-            uint32_t notified = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PROGRESS_UPDATE_MS));
-            if (notified > 0) {
-                ESP_LOGI(TAG, "按钮触发，立即刷新下一条图片");
-                break;
+        for (int t = 0; t <= total_steps; ) {
+            /* 仅在正常模式下更新进度条 */
+            if (state == DISPLAY_NORMAL) {
+                ui_animation_update_bottom_bar(t * 100 / total_steps);
+            }
+
+            int64_t ts;
+            if (xQueueReceive(s_button_queue, &ts, pdMS_TO_TICKS(PROGRESS_UPDATE_MS)) == pdTRUE) {
+                last_action_us = ts;
+
+                if (state == DISPLAY_NORMAL) {
+                    if (!waiting_second) {
+                        /* 第一次点击：记录时间，等待第二次点击以判断是否为双击 */
+                        waiting_second = true;
+                        first_click_us = ts;
+                    } else {
+                        int64_t interval = ts - first_click_us;
+                        if (interval < 400000LL) {
+                            /* 双击确认：进入评价模式，暂停倒计时 */
+                            waiting_second     = false;
+                            t_saved            = t;
+                            state              = DISPLAY_RATING;
+                            sel                = 0;
+                            last_rating_act_us = ts;
+                            ui_animation_show_rating_bar(sel);
+                            ESP_LOGI(TAG, "进入评价模式，倒计时暂停于步数 %d", t_saved);
+                        } else {
+                            /* 间隔过长，将本次点击视为新的第一次点击，重置窗口 */
+                            first_click_us = ts;
+                            /* waiting_second 保持 true，继续等待下一次点击 */
+                        }
+                    }
+                } else {
+                    /* 评价模式下单击：200ms 防抖，防止连击跳多档 */
+                    if (ts - last_rating_act_us >= 200000LL) {
+                        last_rating_act_us = ts;
+                        sel = (sel + 1) % 6;  /* 循环 0→1→2→3→4→5→0 */
+                        ui_animation_show_rating_bar(sel);
+                        ESP_LOGI(TAG, "评价切换：%d 分", sel);
+                    }
+                }
+            } else {
+                /* 无按键到来（PROGRESS_UPDATE_MS 超时） */
+                int64_t now = esp_timer_get_time();
+
+                /* 正常模式：检查是否需要将等待中的单击超时判定为「下一张」 */
+                if (state == DISPLAY_NORMAL && waiting_second) {
+                    if (now - first_click_us >= 400000LL) {
+                        /* 单击确认（双击窗口已过）：跳到下一张图片 */
+                        waiting_second = false;
+                        ESP_LOGI(TAG, "单击确认：跳到下一张图片");
+                        break;  /* 跳出倒计时循环，加载下一张 */
+                    }
+                }
+
+                if (state == DISPLAY_RATING) {
+                    if (now - last_action_us >= 5000000LL) {
+                        /* 5 秒无操作：提交评价，退出评价模式，从保存步数继续 */
+                        submit_rating(sel);
+                        state = DISPLAY_NORMAL;
+                        t     = t_saved;
+                        /* 立即恢复进度条显示 */
+                        ui_animation_update_bottom_bar(t * 100 / total_steps);
+                        ESP_LOGI(TAG, "评价超时提交，从步数 %d 继续倒计时", t_saved);
+                    }
+                    /* 评价模式下不推进 t */
+                } else {
+                    t++;  /* 正常推进倒计时 */
+                }
             }
         }
     }

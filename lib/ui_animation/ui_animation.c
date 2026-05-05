@@ -447,3 +447,62 @@ void ui_animation_prepare_image_mode(void)
     s_last_tick_ms = now_ms;
     lv_timer_handler();
 }
+
+/* ---------- 评价指示条（直接写 TFT，复用底部 2px 区域） ---------- */
+
+/**
+ * @brief 显示评分指示条
+ *
+ * sel = 0：无评价，全暗（5段均为暗灰）
+ * sel = 1-5：对应评分，前 sel 段点亮，颜色从红渐变到绿
+ *   1分=红(0xE74C3C)  2分=橙(0xE67E22)  3分=黄(0xF1C40F)
+ *   4分=浅绿(0x2ECC71) 5分=绿(0x27AE60)
+ * 每段宽 64px（320 / 5），底部 2px 行（y:238, y:239）
+ */
+void ui_animation_show_rating_bar(int sel)
+{
+    /* 将 24bit RGB 转为 RGB565 大端序（字节交换） */
+    #define RGB24_TO_565_SWAPPED(c) ({ \
+        uint8_t _r = ((c) >> 16) & 0xFF; \
+        uint8_t _g = ((c) >>  8) & 0xFF; \
+        uint8_t _b = ((c)      ) & 0xFF; \
+        uint16_t _v = ((_r & 0xF8) << 8) | ((_g & 0xFC) << 3) | (_b >> 3); \
+        (uint16_t)((_v >> 8) | (_v << 8)); \
+    })
+
+    /* 6 个状态的颜色（0=暗，1-5 从红到绿） */
+    static const uint32_t SCORE_COLORS[6] = {
+        0x333333,   /* 0: 暗灰（无评价） */
+        0xE74C3C,   /* 1: 红 */
+        0xE67E22,   /* 2: 橙 */
+        0xF1C40F,   /* 3: 黄 */
+        0x2ECC71,   /* 4: 浅绿 */
+        0x27AE60,   /* 5: 绿 */
+    };
+
+    /* 每段宽度（5段均分 320px） */
+    static const int SEG_W = TFT_WIDTH / 5;  /* 64px */
+
+    uint16_t dim_color = RGB24_TO_565_SWAPPED(0x333333);
+
+    /* 构建 320px 宽的行缓冲区 */
+    uint16_t row[TFT_WIDTH];
+    for (int seg = 0; seg < 5; seg++) {
+        /* sel > 0 且当前段在评分范围内（seg < sel），则点亮；否则暗灰 */
+        uint16_t color;
+        if (sel > 0 && seg < sel) {
+            color = RGB24_TO_565_SWAPPED(SCORE_COLORS[seg + 1]);
+        } else {
+            color = dim_color;
+        }
+        int x_start = seg * SEG_W;
+        int x_end   = (seg == 4) ? TFT_WIDTH : x_start + SEG_W;  /* 最后一段补齐余数 */
+        for (int x = x_start; x < x_end; x++) row[x] = color;
+    }
+
+    /* 直接写 TFT 底部两行（y:238, y:239） */
+    ui_animation_write_row(0, TFT_HEIGHT - 2, row, TFT_WIDTH);
+    ui_animation_write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
+
+    #undef RGB24_TO_565_SWAPPED
+}

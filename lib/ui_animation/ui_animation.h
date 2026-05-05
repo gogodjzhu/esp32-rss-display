@@ -37,6 +37,10 @@ void ui_animation_write_row(int x, int y, const uint16_t *rgb565, int width);
  * 预创建底部进度条，后续 lv_timer_handler 只重绘底部 20px */
 void ui_animation_prepare_image_mode(void);
 
+/* 在底部 2px 区域绘制评价指示条（直接写 TFT，绕过 LVGL）
+ * sel: 0=NONE（两段均暗）, 1=LIKE（右半亮绿）, 2=DISLIKE（左半亮红） */
+void ui_animation_show_rating_bar(int sel);
+
 #ifdef __cplusplus
 }
 #endif
