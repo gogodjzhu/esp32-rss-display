@@ -53,6 +53,16 @@ esp_err_t image_fetcher_download_and_show(const char *url);
  */
 esp_err_t image_fetcher_submit_rating(int rating);
 
+/**
+ * @brief 获取当前实际使用的 backend URL
+ *
+ * 返回 image_fetcher_init() 加载后的 URL（NVS 值或硬编码 fallback）。
+ * 必须在 image_fetcher_init() 之后调用。
+ *
+ * @return 指向内部静态字符串的指针，调用方不可修改或释放
+ */
+const char *image_fetcher_get_backend_url(void);
+
 #ifdef __cplusplus
 }
 #endif

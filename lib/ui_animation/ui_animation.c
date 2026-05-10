@@ -321,7 +321,7 @@ void ui_animation_task(void)
 
 /* ---------- 新增接口实现 ---------- */
 
-void ui_animation_show_no_network(void)
+void ui_animation_show_no_network(const char *ap_ssid)
 {
     ui_reset_screen();
 
@@ -361,6 +361,56 @@ void ui_animation_show_no_network(void)
     lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
     lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+
+    /* 文字说明：热点名称和配网地址 */
+    lv_obj_t *label1 = lv_label_create(scr);
+    lv_label_set_text(label1, "Connect to WiFi hotspot:");
+    lv_obj_set_style_text_color(label1, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_obj_align(label1, LV_ALIGN_CENTER, 0, 55);
+
+    lv_obj_t *label2 = lv_label_create(scr);
+    lv_label_set_text_fmt(label2, "SSID: %s", ap_ssid);
+    lv_obj_set_style_text_color(label2, lv_color_hex(0xf39c12), LV_PART_MAIN);
+    lv_obj_align(label2, LV_ALIGN_CENTER, 0, 80);
+
+    lv_obj_t *label3 = lv_label_create(scr);
+    lv_label_set_text(label3, "Open: 192.168.4.1");
+    lv_obj_set_style_text_color(label3, lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_align(label3, LV_ALIGN_CENTER, 0, 105);
+}
+
+void ui_animation_show_connecting(const char *backend_url)
+{
+    ui_reset_screen();
+
+    lv_obj_t *scr = lv_screen_active();
+
+    /* 黑色背景 */
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+
+    /* 居中 spinner，向上偏移留出文字空间 */
+    lv_obj_t *spinner = lv_spinner_create(scr);
+    lv_obj_set_size(spinner, 60, 60);
+    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -30);
+
+    /* 提示文字 */
+    lv_obj_t *label1 = lv_label_create(scr);
+    lv_label_set_text(label1, "Connecting to server...");
+    lv_obj_set_style_text_color(label1, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_obj_align(label1, LV_ALIGN_CENTER, 0, 40);
+
+    /* backend URL（灰色，较小） */
+    lv_obj_t *label2 = lv_label_create(scr);
+    lv_label_set_text(label2, backend_url);
+    lv_obj_set_style_text_color(label2, lv_color_hex(0x888888), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(label2, LV_OPA_COVER, LV_PART_MAIN);
+    lv_label_set_long_mode(label2, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label2, 300);
+    lv_obj_align(label2, LV_ALIGN_CENTER, 0, 65);
+
+    /* 驱动 LVGL 渲染一帧，确保画面更新 */
+    ui_animation_task();
 }
 
 void ui_animation_update_bottom_bar(int percent)

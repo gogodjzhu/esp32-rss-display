@@ -26,7 +26,17 @@ void ui_animation_show_ok(void);
 void ui_animation_task(void);
 
 /* 显示无网络提示（黄色背景 + 居中感叹号图形） */
-void ui_animation_show_no_network(void);
+void ui_animation_show_no_network(const char *ap_ssid);
+
+/**
+ * @brief 显示"正在连接服务器"过渡画面
+ *
+ * 显示 spinner + backend URL 文字，需在 image_fetcher_init() 之后调用。
+ * 内部调用 ui_animation_task() 驱动一帧渲染。
+ *
+ * @param backend_url 实际使用的后端地址字符串
+ */
+void ui_animation_show_connecting(const char *backend_url);
 
 /* 仅更新底部进度条（0-100），不清空图片区域 */
 void ui_animation_update_bottom_bar(int percent);

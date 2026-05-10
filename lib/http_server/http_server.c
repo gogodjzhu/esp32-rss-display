@@ -16,6 +16,7 @@
 #include "wifi_manager.h"
 #include "rss_reader.h"
 #include "nvs_manager.h"
+#include "image_fetcher.h"
 
 static const char *TAG = "HTTP_SERVER";
 
@@ -348,7 +349,7 @@ static esp_err_t settings_get_handler(httpd_req_t *req)
 static esp_err_t api_settings_get_handler(httpd_req_t *req)
 {
     char url[128];
-    strncpy(url, CONFIG_BACKEND_URL, sizeof(url) - 1);
+    strncpy(url, image_fetcher_get_backend_url(), sizeof(url) - 1);
     url[sizeof(url) - 1] = '\0';
 
     size_t len = sizeof(url);

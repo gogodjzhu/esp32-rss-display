@@ -27,7 +27,10 @@
 static const char *TAG = "IMG_FETCHER";
 
 /* 配置常量 */
-#define DEVICE_ID        CONFIG_DEVICE_ID
+#define DEVICE_ID           CONFIG_DEVICE_ID
+/* 硬编码 fallback，不再通过 Kconfig 暴露给 menuconfig；
+ * 实际运行时优先使用 NVS 中通过 Web 页面保存的值 */
+#define DEFAULT_BACKEND_URL "http://192.168.3.112:8080"
 
 /* 运行时 backend URL，image_fetcher_init() 时从 NVS 加载，fallback 到 Kconfig 默认值 */
 static char s_backend_url[128];
@@ -126,7 +129,7 @@ static esp_err_t json_http_event_cb(esp_http_client_event_t *evt)
 esp_err_t image_fetcher_init(void)
 {
     /* 先以 Kconfig 默认值初始化，再尝试从 NVS 覆盖 */
-    strncpy(s_backend_url, CONFIG_BACKEND_URL, sizeof(s_backend_url) - 1);
+    strncpy(s_backend_url, DEFAULT_BACKEND_URL, sizeof(s_backend_url) - 1);
     s_backend_url[sizeof(s_backend_url) - 1] = '\0';
 
     char nvs_url[128] = {0};
@@ -402,4 +405,9 @@ esp_err_t image_fetcher_submit_rating(int rating)
 
     ESP_LOGI(TAG, "评分提交成功，item_id=%" PRIu32 " rating=%d", s_current_item_id, rating);
     return ESP_OK;
+}
+
+const char *image_fetcher_get_backend_url(void)
+{
+    return s_backend_url;
 }

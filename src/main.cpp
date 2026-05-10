@@ -29,7 +29,7 @@ static const char *TAG = "MAIN";
 #define IMAGE_URL_BUF_LEN 512
 
 /* 每次图片展示后等待的时间（秒） */
-#define DISPLAY_INTERVAL_SEC 180
+#define DISPLAY_INTERVAL_SEC 60
 
 /* 进度条更新间隔（毫秒），越小越平滑 */
 #define PROGRESS_UPDATE_MS   100
@@ -108,7 +108,6 @@ static void image_display_task(void *pvParameters)
 {
     (void)pvParameters;
 
-    image_fetcher_init();
     ESP_LOGI(TAG, "图片显示任务启动");
 
     /* 保存任务句柄（保留，便于未来扩展） */
@@ -260,7 +259,7 @@ extern "C" void app_main()
         /* 无凭证，已进入 AP 配网模式（192.168.4.1）
          * 启动 HTTP server 提供配网页面，然后驱动 LVGL 等待用户配网 */
         ESP_LOGI(TAG, "进入 AP 配网模式，启动 HTTP 配网服务器");
-        ui_animation_show_no_network();
+        ui_animation_show_no_network(wifi_manager_get_info()->ap_ssid);
         http_server_start();
         while (true) {
             ui_animation_task();
@@ -269,6 +268,10 @@ extern "C" void app_main()
     }
 
     ESP_LOGI(TAG, "WiFi 已连接，启动 HTTP 管理服务器");
+
+    /* 初始化图片拉取模块（从 NVS 加载 backend URL），显示连接画面 */
+    image_fetcher_init();
+    ui_animation_show_connecting(image_fetcher_get_backend_url());
 
     /* 初始化按钮 GPIO9，按下后立即刷新图片 */
     button_init();
