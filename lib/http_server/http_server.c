@@ -15,6 +15,7 @@
 #include "http_server.h"
 #include "wifi_manager.h"
 #include "rss_reader.h"
+#include "nvs_manager.h"
 
 static const char *TAG = "HTTP_SERVER";
 
@@ -326,6 +327,91 @@ static esp_err_t static_file_handler(httpd_req_t *req)
     return serve_static_file(req, filename);
 }
 
+/**
+ * @brief 设置页面处理器 - 返回 settings.html
+ *
+ * URI: /settings
+ * 方法: GET
+ */
+static esp_err_t settings_get_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "GET /settings -> serving settings.html");
+    return serve_static_file(req, "settings.html");
+}
+
+/**
+ * @brief 设置 API 读取处理器 - 返回当前 backend_url（JSON）
+ *
+ * URI: /api/settings
+ * 方法: GET
+ */
+static esp_err_t api_settings_get_handler(httpd_req_t *req)
+{
+    char url[128];
+    strncpy(url, CONFIG_BACKEND_URL, sizeof(url) - 1);
+    url[sizeof(url) - 1] = '\0';
+
+    size_t len = sizeof(url);
+    nvs_manager_get_str("backend_url", url, &len);
+
+    char json[160];
+    int n = snprintf(json, sizeof(json), "{\"backend_url\":\"%s\"}", url);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, n);
+    return ESP_OK;
+}
+
+/**
+ * @brief 设置 API 保存处理器 - 解析 JSON body，保存 backend_url 到 NVS，延迟重启
+ *
+ * URI: /api/settings
+ * 方法: POST
+ */
+static esp_err_t api_settings_post_handler(httpd_req_t *req)
+{
+    char body[192] = {0};
+    int ret = httpd_req_recv(req, body, sizeof(body) - 1);
+    if (ret <= 0) {
+        ESP_LOGE(TAG, "POST /api/settings -> 接收 body 失败 (ret=%d)", ret);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    body[ret] = '\0';
+    ESP_LOGI(TAG, "POST /api/settings -> body: %s", body);
+
+    /* 从 JSON body 中提取 backend_url 值（简单 strstr，无需第三方库） */
+    char url[128] = {0};
+    const char *key = "\"backend_url\":\"";
+    char *p = strstr(body, key);
+    if (!p) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing backend_url");
+        return ESP_FAIL;
+    }
+    p += strlen(key);
+    char *end = strchr(p, '"');
+    if (!end) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "malformed json");
+        return ESP_FAIL;
+    }
+    size_t url_len = (size_t)(end - p);
+    if (url_len == 0 || url_len >= sizeof(url)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid url length");
+        return ESP_FAIL;
+    }
+    strncpy(url, p, url_len);
+    url[url_len] = '\0';
+
+    nvs_manager_set_str("backend_url", url);
+    ESP_LOGI(TAG, "POST /api/settings -> 保存 backend_url: %s，2秒后重启", url);
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, "{\"ok\":true}", -1);
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+    return ESP_OK;
+}
+
 // URI路由定义 - 具体路由在前, 通配fallback在最后
 static const httpd_uri_t root_uri = {
     .uri = "/",
@@ -367,6 +453,24 @@ static const httpd_uri_t rss_item_uri = {
     .uri = "/api/rss",
     .method = HTTP_GET,
     .handler = rss_item_get_handler,
+};
+
+static const httpd_uri_t settings_uri = {
+    .uri = "/settings",
+    .method = HTTP_GET,
+    .handler = settings_get_handler,
+};
+
+static const httpd_uri_t api_settings_get_uri = {
+    .uri = "/api/settings",
+    .method = HTTP_GET,
+    .handler = api_settings_get_handler,
+};
+
+static const httpd_uri_t api_settings_post_uri = {
+    .uri = "/api/settings",
+    .method = HTTP_POST,
+    .handler = api_settings_post_handler,
 };
 
 static const httpd_uri_t static_file_uri = {
@@ -418,13 +522,14 @@ httpd_handle_t http_server_start(void)
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
+    config.max_uri_handlers = 12;
     config.uri_match_fn = httpd_uri_match_wildcard;
     httpd_handle_t server = NULL;
 
     ESP_LOGI(TAG, "Starting HTTP server on port: %d", config.server_port);
 
     if (httpd_start(&server, &config) == ESP_OK) {
-        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /api/rss, /reconnect, /reset, /*");
+        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /api/rss, /settings, /api/settings, /reconnect, /reset, /*");
         httpd_register_uri_handler(server, &root_uri);
         httpd_register_uri_handler(server, &config_uri);
         httpd_register_uri_handler(server, &save_uri);
@@ -432,6 +537,9 @@ httpd_handle_t http_server_start(void)
         httpd_register_uri_handler(server, &reconnect_uri);
         httpd_register_uri_handler(server, &reset_uri);
         httpd_register_uri_handler(server, &rss_item_uri);
+        httpd_register_uri_handler(server, &settings_uri);
+        httpd_register_uri_handler(server, &api_settings_get_uri);
+        httpd_register_uri_handler(server, &api_settings_post_uri);
         httpd_register_uri_handler(server, &static_file_uri);
         ESP_LOGI(TAG, "HTTP server started successfully");
     } else {

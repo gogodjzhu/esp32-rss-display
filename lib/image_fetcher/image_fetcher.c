@@ -22,12 +22,15 @@
 #include "sdkconfig.h"
 #include "image_fetcher.h"
 #include "ui_animation.h"
+#include "nvs_manager.h"
 
 static const char *TAG = "IMG_FETCHER";
 
 /* 配置常量 */
-#define BACKEND_URL      CONFIG_BACKEND_URL
 #define DEVICE_ID        CONFIG_DEVICE_ID
+
+/* 运行时 backend URL，image_fetcher_init() 时从 NVS 加载，fallback 到 Kconfig 默认值 */
+static char s_backend_url[128];
 #define JPEG_BUF_MAX     (32 * 1024)   /* JPEG buffer 硬性上限 32KB（实际图片约 6~10KB） */
 #define JPEG_POOL_SIZE   (5 * 1024)    /* TJpgDec 工作内存池 5KB（jd_prepare 最小需求约 3.5KB） */
 #define IMAGE_DISP_ROWS  240           /* 图片写满全屏，底部 2px 进度条叠加 */
@@ -122,7 +125,20 @@ static esp_err_t json_http_event_cb(esp_http_client_event_t *evt)
 
 esp_err_t image_fetcher_init(void)
 {
-    ESP_LOGI(TAG, "图片拉取模块初始化 (backend: %s, device: %s)", BACKEND_URL, DEVICE_ID);
+    /* 先以 Kconfig 默认值初始化，再尝试从 NVS 覆盖 */
+    strncpy(s_backend_url, CONFIG_BACKEND_URL, sizeof(s_backend_url) - 1);
+    s_backend_url[sizeof(s_backend_url) - 1] = '\0';
+
+    char nvs_url[128] = {0};
+    size_t nvs_url_len = sizeof(nvs_url);
+    if (nvs_manager_get_str("backend_url", nvs_url, &nvs_url_len) == ESP_OK && strlen(nvs_url) > 0) {
+        strncpy(s_backend_url, nvs_url, sizeof(s_backend_url) - 1);
+        ESP_LOGI(TAG, "从 NVS 加载 backend_url: %s", s_backend_url);
+    } else {
+        ESP_LOGI(TAG, "使用默认 backend_url: %s", s_backend_url);
+    }
+
+    ESP_LOGI(TAG, "图片拉取模块初始化 (backend: %s, device: %s)", s_backend_url, DEVICE_ID);
     return ESP_OK;
 }
 
@@ -130,7 +146,7 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
 {
     /* 构造请求 URL */
     char api_url[256];
-    snprintf(api_url, sizeof(api_url), "%s/v1/device/%s/next", BACKEND_URL, DEVICE_ID);
+    snprintf(api_url, sizeof(api_url), "%s/v1/device/%s/next", s_backend_url, DEVICE_ID);
     ESP_LOGI(TAG, "GET %s", api_url);
 
     json_recv_ctx_t ctx = {0};
@@ -347,7 +363,7 @@ esp_err_t image_fetcher_submit_rating(int rating)
     /* 构造请求 URL */
     char api_url[256];
     snprintf(api_url, sizeof(api_url),
-             "%s/v1/item/%" PRIu32 "/rating", BACKEND_URL, s_current_item_id);
+             "%s/v1/item/%" PRIu32 "/rating", s_backend_url, s_current_item_id);
 
     /* 构造 JSON body */
     char body[128];

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RSS 新闻配置</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="card">
+<h1>RSS 新闻配置</h1>
+<div id="form-area">
+<label>Backend URL</label>
+<input type="text" id="backend_url" placeholder="http://192.168.x.x:8080">
+<button onclick="saveSettings()">保存并重启</button>
+</div>
+<div id="msg" style="display:none" class="status status-connected">
+保存成功，正在重启，请稍候...
+</div>
+<div id="err" style="display:none" class="status status-disconnected"></div>
+<div class="back"><a href="/">&larr; 返回</a></div>
+</div>
+<script>
+window.onload = function() {
+  fetch('/api/settings')
+    .then(function(r){ return r.json(); })
+    .then(function(d){ document.getElementById('backend_url').value = d.backend_url || ''; })
+    .catch(function(){ });
+};
+
+function saveSettings() {
+  var url = document.getElementById('backend_url').value.trim();
+  if (!url) {
+    showErr('Backend URL 不能为空');
+    return;
+  }
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({backend_url: url})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d.ok) {
+      document.getElementById('form-area').style.display = 'none';
+      document.getElementById('msg').style.display = 'block';
+    } else {
+      showErr('保存失败');
+    }
+  })
+  .catch(function(){ showErr('网络错误，请重试'); });
+}
+
+function showErr(msg) {
+  var el = document.getElementById('err');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+</script>
+</body>
+</html>
