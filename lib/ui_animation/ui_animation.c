@@ -24,11 +24,11 @@
 static const char *TAG = "UI";
 
 /* ---------- ST7789 引脚定义 ---------- */
-#define TFT_MOSI  6
-#define TFT_SCLK  5
-#define TFT_CS    7
-#define TFT_DC    3
-#define TFT_RST   10
+#define TFT_MOSI  1
+#define TFT_SCLK  0
+#define TFT_CS    19
+#define TFT_DC    18
+#define TFT_RST   12
 
 #define TFT_WIDTH  320
 #define TFT_HEIGHT 240
