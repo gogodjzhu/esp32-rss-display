@@ -28,7 +28,7 @@ static const char *TAG = "UI";
 #define TFT_SCLK  0
 #define TFT_CS    19
 #define TFT_DC    18
-#define TFT_RST   12
+#define TFT_RST   3
 
 #define TFT_WIDTH  320
 #define TFT_HEIGHT 240
