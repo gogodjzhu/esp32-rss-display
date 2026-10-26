@@ -355,8 +355,14 @@ static esp_err_t api_settings_get_handler(httpd_req_t *req)
     size_t len = sizeof(url);
     nvs_manager_get_str("backend_url", url, &len);
 
-    char json[160];
-    int n = snprintf(json, sizeof(json), "{\"backend_url\":\"%s\"}", url);
+    /* 从 NVS 读取 headers JSON */
+    char headers[512] = "[]";
+    size_t hdr_len = sizeof(headers);
+    nvs_manager_get_str("http_headers", headers, &hdr_len);
+
+    char json[768];
+    int n = snprintf(json, sizeof(json),
+        "{\"backend_url\":\"%s\",\"headers\":%s}", url, headers);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, json, n);
     return ESP_OK;
@@ -370,7 +376,9 @@ static esp_err_t api_settings_get_handler(httpd_req_t *req)
  */
 static esp_err_t api_settings_post_handler(httpd_req_t *req)
 {
-    char body[192] = {0};
+    ESP_LOGI(TAG, "POST /api/settings -> handler called");
+
+    char body[512] = {0};
     int ret = httpd_req_recv(req, body, sizeof(body) - 1);
     if (ret <= 0) {
         ESP_LOGE(TAG, "POST /api/settings -> 接收 body 失败 (ret=%d)", ret);
@@ -382,13 +390,13 @@ static esp_err_t api_settings_post_handler(httpd_req_t *req)
 
     /* 从 JSON body 中提取 backend_url 值（简单 strstr，无需第三方库） */
     char url[128] = {0};
-    const char *key = "\"backend_url\":\"";
-    char *p = strstr(body, key);
+    const char *url_key = "\"backend_url\":\"";
+    char *p = strstr(body, url_key);
     if (!p) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing backend_url");
         return ESP_FAIL;
     }
-    p += strlen(key);
+    p += strlen(url_key);
     char *end = strchr(p, '"');
     if (!end) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "malformed json");
@@ -403,7 +411,41 @@ static esp_err_t api_settings_post_handler(httpd_req_t *req)
     url[url_len] = '\0';
 
     nvs_manager_set_str("backend_url", url);
-    ESP_LOGI(TAG, "POST /api/settings -> 保存 backend_url: %s，2秒后重启", url);
+    ESP_LOGI(TAG, "POST /api/settings -> 保存 backend_url: %s", url);
+
+    /* 解析并保存 HTTP headers */
+    const char *hdr_key = "\"headers\":[";
+    char *hdr_start = strstr(body, hdr_key);
+    if (hdr_start) {
+        hdr_start += strlen(hdr_key) - 1; /* 指向 '[' */
+        /* 匹配括号深度找到数组结束的 ']' */
+        int depth = 0;
+        char *hdr_end = hdr_start;
+        for (; *hdr_end != '\0'; hdr_end++) {
+            if (*hdr_end == '[') depth++;
+            else if (*hdr_end == ']') {
+                depth--;
+                if (depth == 0) break;
+            }
+        }
+        size_t hdr_len = (size_t)(hdr_end - hdr_start) + 1;
+        if (hdr_len > 1 && hdr_len < 512) {
+            char headers_buf[512];
+            memcpy(headers_buf, hdr_start, hdr_len);
+            headers_buf[hdr_len] = '\0';
+            nvs_manager_set_str("http_headers", headers_buf);
+            ESP_LOGI(TAG, "POST /api/settings -> 保存 http_headers: %s", headers_buf);
+        } else {
+            ESP_LOGI(TAG, "POST /api/settings -> headers 数组为空或过长，清除 NVS");
+            nvs_manager_erase("http_headers");
+        }
+    } else {
+        /* 没有 headers 字段，清除已有的 headers 配置 */
+        ESP_LOGI(TAG, "POST /api/settings -> 未包含 headers，清除 NVS");
+        nvs_manager_erase("http_headers");
+    }
+
+    ESP_LOGI(TAG, "配置已保存，2秒后重启");
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, "{\"ok\":true}", -1);

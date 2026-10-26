@@ -104,7 +104,3 @@ v4l2-ctl --device=/dev/video0 \
 5. 若有问题，修改代码后重复上述步骤
 
 ---
-
-## OpenSpec 工作流
-
-使用 `openspec` 进行规格驱动开发。规格文件位于 `openspec/specs/<capability>/spec.md`。通过 OpenCode 斜线命令操作：`/opsx-explore`、`/opsx-propose`、`/opsx-apply`、`/opsx-archive`（需要 `.opencode/` 目录下的 `@opencode-ai/plugin` npm 包）。

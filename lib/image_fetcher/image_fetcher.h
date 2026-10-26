@@ -22,8 +22,8 @@ esp_err_t image_fetcher_init(void);
 /**
  * @brief 从后端获取下一条内容的图片 URL
  *
- * 请求 {BACKEND_URL}/v1/device/{DEVICE_ID}/next，解析响应 JSON 中的
- * image_url 字段，写入 url_buf。
+ * 直接使用 backend_url 作为完整请求地址（不再自动拼接尾缀），
+ * 解析响应 JSON 中的 image_url 字段，写入 url_buf。
  *
  * @param url_buf 存储图片 URL 的缓冲区
  * @param buf_len 缓冲区长度
@@ -62,6 +62,18 @@ esp_err_t image_fetcher_submit_rating(int rating);
  * @return 指向内部静态字符串的指针，调用方不可修改或释放
  */
 const char *image_fetcher_get_backend_url(void);
+
+/**
+ * @brief 获取当前加载的自定义 HTTP headers（JSON 数组字符串）
+ *
+ * 返回 image_fetcher_init() 从 NVS 加载的 headers JSON，格式为：
+ * [{"k":"Header-Name","v":"Header-Value"},...]。
+ * 无自定义 headers 时返回 "[]"。
+ * 必须在 image_fetcher_init() 之后调用。
+ *
+ * @return 指向内部静态字符串的指针，调用方不可修改或释放
+ */
+const char *image_fetcher_get_http_headers(void);
 
 #ifdef __cplusplus
 }

@@ -30,10 +30,12 @@ static const char *TAG = "IMG_FETCHER";
 #define DEVICE_ID           CONFIG_DEVICE_ID
 /* 硬编码 fallback，不再通过 Kconfig 暴露给 menuconfig；
  * 实际运行时优先使用 NVS 中通过 Web 页面保存的值 */
-#define DEFAULT_BACKEND_URL "http://192.168.3.112:8080"
+#define DEFAULT_BACKEND_URL "http://192.168.3.122:8080"
 
 /* 运行时 backend URL，image_fetcher_init() 时从 NVS 加载，fallback 到 Kconfig 默认值 */
 static char s_backend_url[128];
+/* 自定义 HTTP headers JSON 数组字符串，image_fetcher_init() 时从 NVS 加载 */
+static char s_http_headers[512];
 #define JPEG_BUF_MAX     (32 * 1024)   /* JPEG buffer 硬性上限 32KB（实际图片约 6~10KB） */
 #define JPEG_POOL_SIZE   (5 * 1024)    /* TJpgDec 工作内存池 5KB（jd_prepare 最小需求约 3.5KB） */
 #define IMAGE_DISP_ROWS  240           /* 图片写满全屏，底部 2px 进度条叠加 */
@@ -142,20 +144,61 @@ esp_err_t image_fetcher_init(void)
     }
 
     ESP_LOGI(TAG, "图片拉取模块初始化 (backend: %s, device: %s)", s_backend_url, DEVICE_ID);
+
+    /* 从 NVS 加载自定义 HTTP headers */
+    char headers_buf[sizeof(s_http_headers)] = {0};
+    size_t headers_len = sizeof(headers_buf);
+    if (nvs_manager_get_str("http_headers", headers_buf, &headers_len) == ESP_OK && strlen(headers_buf) > 0) {
+        strncpy(s_http_headers, headers_buf, sizeof(s_http_headers) - 1);
+        s_http_headers[sizeof(s_http_headers) - 1] = '\0';
+        ESP_LOGI(TAG, "从 NVS 加载 http_headers: %s", s_http_headers);
+    } else {
+        s_http_headers[0] = '\0';
+        ESP_LOGI(TAG, "无自定义 HTTP headers");
+    }
+
     return ESP_OK;
+}
+
+/* 解析 s_http_headers JSON 数组，为 HTTP 客户端设置自定义 headers */
+static void apply_custom_headers(esp_http_client_handle_t client)
+{
+    if (s_http_headers[0] == '\0') return;
+
+    const char *p = s_http_headers;
+    while ((p = strstr(p, "{\"k\":\"")) != NULL) {
+        p += 6;
+        char key[128] = {0};
+        int i = 0;
+        while (*p && *p != '"' && i < 127) key[i++] = *p++;
+        if (*p == '"') p++;
+
+        p = strstr(p, "\"v\":\"");
+        if (!p) break;
+        p += 5;
+        char val[512] = {0};
+        i = 0;
+        while (*p && *p != '"' && i < 511) {
+            if (*p == '\\' && *(p + 1) != '\0') p++;
+            val[i++] = *p++;
+        }
+
+        if (key[0]) {
+            ESP_LOGI(TAG, "设置 header: %s: %s", key, val);
+            esp_http_client_set_header(client, key, val);
+        }
+    }
 }
 
 esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
 {
-    /* 构造请求 URL */
-    char api_url[256];
-    snprintf(api_url, sizeof(api_url), "%s/v1/device/%s/next", s_backend_url, DEVICE_ID);
-    ESP_LOGI(TAG, "GET %s", api_url);
+    /* 直接使用 backend_url 作为完整请求地址，不再自动拼接尾缀 */
+    ESP_LOGI(TAG, "GET %s", s_backend_url);
 
     json_recv_ctx_t ctx = {0};
 
     esp_http_client_config_t config = {
-        .url          = api_url,
+        .url          = s_backend_url,
         .event_handler = json_http_event_cb,
         .user_data    = &ctx,
         .timeout_ms   = 10000,
@@ -166,6 +209,8 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
         ESP_LOGE(TAG, "HTTP client 初始化失败");
         return ESP_FAIL;
     }
+
+    apply_custom_headers(client);
 
     esp_err_t err = esp_http_client_perform(client);
     int status    = esp_http_client_get_status_code(client);
@@ -253,6 +298,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
         ESP_LOGE(TAG, "HTTP client 初始化失败");
         return ESP_FAIL;
     }
+
+    apply_custom_headers(client);
 
     esp_err_t err = esp_http_client_open(client, 0);
     if (err != ESP_OK) {
@@ -390,6 +437,8 @@ esp_err_t image_fetcher_submit_rating(int rating)
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_post_field(client, body, (int)strlen(body));
 
+    apply_custom_headers(client);
+
     esp_err_t err = esp_http_client_perform(client);
     int status    = esp_http_client_get_status_code(client);
     esp_http_client_cleanup(client);
@@ -410,4 +459,10 @@ esp_err_t image_fetcher_submit_rating(int rating)
 const char *image_fetcher_get_backend_url(void)
 {
     return s_backend_url;
+}
+
+const char *image_fetcher_get_http_headers(void)
+{
+    if (s_http_headers[0] == '\0') return "[]";
+    return s_http_headers;
 }
