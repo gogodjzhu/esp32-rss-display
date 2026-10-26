@@ -6,6 +6,12 @@ venv
 .vscode/ipch
 sdkconfig.*
 !sdkconfig.defaults
+!sdkconfig.defaults.esp32c3
+!sdkconfig.defaults.esp32s3
 node_modules
 package.json
 package-lock.json
+
+# Go 后端构建产物与运行时数据（不入库）
+backend/bin/
+backend/data/

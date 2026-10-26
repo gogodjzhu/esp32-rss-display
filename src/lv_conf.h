@@ -1,6 +1,7 @@
 /**
  * lv_conf.h - LVGL v9 最小配置
- * 针对 ESP32-S3, 512KB SRAM, 分块渲染，纯图形 UI（无文字）
+ * 支持 ESP32-S3 (512KB SRAM) 与 ESP32-C3 (400KB SRAM, 无 PSRAM)，
+ * 分块渲染，纯图形 UI（无文字）
  */
 
 #if 1 /* 必须为 1，否则整个文件被忽略 */

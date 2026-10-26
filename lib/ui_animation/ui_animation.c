@@ -23,21 +23,32 @@
 
 static const char *TAG = "UI";
 
-/* ---------- ST7789 引脚定义（ESP32-S3） ---------- */
+/* ---------- ST7789 引脚定义（按芯片条件编译） ---------- */
 /*
- * 选用 ESP32-S3 SPI2 的 IO_MUX 原生引脚组（GPIO10~14），SPI 走硬件直连性能最佳。
- * 已刻意避开：
- *   - GPIO19/GPIO20：USB_D-/D+
- *   - GPIO0/3/45/46：strapping 脚（boot mode / JTAG 源选择）
- *   - GPIO26~32：内部 SPI0/1（flash/PSRAM）占用
- *   - GPIO33~37：Octal PSRAM 板子占用
- * 若硬件接线不同，改这里即可（注意保持 DC/CS/RST 为普通可用 IO）。
+ * 硬件直连（IO_MUX）性能最佳，但 C3 与 S3 的原生引脚组不同：
+ *   - ESP32-S3：SPI2 的 IO_MUX 原生引脚组为 GPIO10~14
+ *     （已刻意避开 GPIO19/20 USB、GPIO0/3/45/46 strapping、
+ *      GPIO26~32 内部 flash/PSRAM、GPIO33~37 Octal PSRAM）
+ *   - ESP32-C3：SPI2(FSPI) 的原生 IO_MUX 直连为 GPIO6~11
+ *     （FSPICLK=6 FSPID=7 FSPIHD=8 FSPIWP=9 FSPICS0=10 FSPIQ=11）
+ * 若硬件接线不同，改对应分支即可（注意保持 DC/CS/RST 为普通可用 IO）。
  */
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
 #define TFT_MOSI  2    /* FSPID   */
 #define TFT_SCLK  1    /* FSPICLK */
 #define TFT_CS    6    /* FSPICS0 */
 #define TFT_DC    5    /* FSPIQ   */
 #define TFT_RST   4    /* FSPIWP  */
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
+/* 沿用原 C3 接线的 GPIO 直连矩阵软连方案（SPI2_HOST + IO_MUX 均可） */
+#define TFT_MOSI  1
+#define TFT_SCLK  0
+#define TFT_CS    19
+#define TFT_DC    18
+#define TFT_RST   3
+#else
+#error "不支持的芯片目标：未定义 TFT 引脚布局（当前仅支持 ESP32C3 / ESP32S3）"
+#endif
 
 #define TFT_WIDTH  320
 #define TFT_HEIGHT 240

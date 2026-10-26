@@ -23,16 +23,16 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # （main.cpp 中 ui_animation_task() + lv_timer_handler）。
 # IDF 默认 3584 字节不足以完成 LVGL 9.6 软件圆角抗锯齿绘制，实测会触发
 # "stack overflow in task main" 并反复重启，故提到与 image_display_task 一致的 8KB。
+# （esp32s3 环境的 CONFIG_ESP_MAIN_TASK_STACK_SIZE 在 sdkconfig.defaults.esp32s3 中
+#   定义，两个芯片共用此配置）
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
 # Custom partition table
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# Flash 容量：ESP32-S3 模组为 8MB，与 esp32-s3-devkitc-1 板型声明保持一致，
-# 否则 PlatformIO 会报 "Flash memory size mismatch"。
-# 分区表末端约 0x290000（2.7MB），8MB 容量有充足余量。
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# Flash 容量按芯片差异拆分到 sdkconfig.defaults.esp32c3 / sdkconfig.defaults.esp32s3
+#（C3=4MB，S3=8MB），必须与 platformio.ini 中各 env 的 board_upload.flash_size 一致。
 
 # SPIFFS filesystem
 CONFIG_SPIFFS_MAX_PARTITIONS=3
