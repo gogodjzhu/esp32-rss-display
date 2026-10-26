@@ -2,7 +2,7 @@
 
 ## 项目概览
 
-双组件项目：ESP32-C3 固件 + Go 后端服务器。
+双组件项目：ESP32-S3 固件 + Go 后端服务器。
 
 - **固件** (`src/`, `lib/`)：PlatformIO + ESP-IDF，负责拉取 RSS 并提供 WiFi 配置门户。
 - **后端** (`backend/`)：Go HTTP 服务器，聚合 RSS 订阅源，渲染 320×240 JPEG 图片并推送给设备。
@@ -11,7 +11,7 @@
 
 ## 固件（PlatformIO + ESP-IDF）
 
-**工具链：** PlatformIO，`framework = espidf`，板型 `airm2m_core_esp32c3`，ESP-IDF 6.0.0。
+**工具链：** PlatformIO，`framework = espidf`，板型 `esp32-s3-devkitc-1`，ESP-IDF 6.1.0。环境名为 `esp32s3`。
 
 ```sh
 pio run                          # 编译
@@ -20,15 +20,17 @@ pio device monitor               # 串口监视器（115200 波特率）
 pio run --target clean           # 清理
 ```
 
-**SPIFFS 镜像**由 `build_spiffs.py` 作为 PlatformIO 预编译钩子自动生成，无需手动操作。源文件位于 `data/www/`，烧录偏移地址为 `0x110000`。
+**SPIFFS 镜像**由 `build_spiffs.py` 作为 PlatformIO 预编译钩子自动生成，无需手动操作。源文件位于 `data/www/`，烧录偏移地址为 `0x210000`（与 `partitions.csv` 中 `storage` 分区一致）。
 
 **入口：** `src/main.cpp` — `extern "C" void app_main()`。`lib/` 下所有库模块均为纯 C，带 `extern "C"` 守卫。
 
-**`sdkconfig.airm2m_core_esp32c3`** 为自动生成文件，禁止手动编辑。`sdkconfig.defaults` 是已提交的配置基准。
+**`sdkconfig.esp32s3`** 为自动生成文件，禁止手动编辑。`sdkconfig.defaults` 是已提交的配置基准。
 
 **根目录和 `src/` 下均有 CMakeLists.txt**，支持直接用 `idf.py` 构建，但推荐使用 PlatformIO 工作流。`src/CMakeLists.txt` 使用 `GLOB_RECURSE` 递归收集 `src/` 和 `lib/` 下的源文件。
 
 **注意：** `platformio.ini` 中的 `build_unflags = -fuse-cxa-atexit` 是 ESP-IDF 所需的 C++ ABI 兼容性配置，禁止删除。
+
+**TFT（ST7789）接线：** SPI2 IO_MUX 原生引脚组 —— MOSI=GPIO11、SCLK=GPIO12、CS=GPIO10、DC=GPIO13、RST=GPIO14；按键接 GPIO9（内部上拉，下降沿中断）。定义见 `lib/ui_animation/ui_animation.c` 顶部。
 
 **配置**通过 Kconfig（`src/Kconfig`）管理。RSS URL 默认为 `http://192.168.3.107:1200/nytimes`（本地 RSSHub）。在 `sdkconfig.defaults` 中递增 `FIRMWARE_VERSION` 可在下次启动时触发 NVS 清除。当前值为 `CONFIG_FIRMWARE_VERSION=6`。
 
@@ -74,7 +76,7 @@ go mod tidy                                         # 同步依赖
 
 ## TFT显示屏视觉测试（USB摄像头）
 
-树莓派通过USB连接了一个摄像头，**已对准ESP32-C3连接的TFT显示屏**。可以通过拍照主动观察显示屏内容，进行显示效果验证。
+树莓派通过USB连接了一个摄像头，**已对准ESP32-S3连接的TFT显示屏**。可以通过拍照主动观察显示屏内容，进行显示效果验证。
 
 ### 拍照命令
 

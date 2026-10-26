@@ -1,7 +1,14 @@
 # This file was automatically generated for projects
 # without default 'CMakeLists.txt' file.
 
-set(LVGL_DIR "${CMAKE_SOURCE_DIR}/.pio/libdeps/airm2m_core_esp32c3/lvgl")
+# LVGL 位于 .pio/libdeps/<env名>/lvgl，用 glob 定位以兼容任意 PlatformIO 环境名
+FILE(GLOB LVGL_CANDIDATES "${CMAKE_SOURCE_DIR}/.pio/libdeps/*/lvgl")
+LIST(LENGTH LVGL_CANDIDATES LVGL_CANDIDATE_COUNT)
+IF(LVGL_CANDIDATE_COUNT GREATER 1)
+    MESSAGE(FATAL_ERROR
+        "发现多个 LVGL 缓存目录（${LVGL_CANDIDATES}），请删除多余的 .pio/libdeps/*/lvgl")
+ENDIF()
+LIST(GET LVGL_CANDIDATES 0 LVGL_DIR)
 
 # Collect source files from src/ and lib/
 FILE(GLOB_RECURSE app_sources

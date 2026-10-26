@@ -18,7 +18,8 @@
 #include <esp_log.h>
 #include <esp_http_client.h>
 #include <esp_heap_caps.h>
-#include <esp32c3/rom/tjpgd.h>
+/* TJpgDec：使用 ESP-ROM 内置的 JPEG 解码器，头路径由 esp_rom 按 IDF_TARGET 解析 */
+#include <rom/tjpgd.h>
 #include "sdkconfig.h"
 #include "image_fetcher.h"
 #include "ui_animation.h"

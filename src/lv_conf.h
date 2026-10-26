@@ -1,6 +1,6 @@
 /**
  * lv_conf.h - LVGL v9 最小配置
- * 针对 ESP32-C3, 235KB SRAM, 分块渲染，纯图形 UI（无文字）
+ * 针对 ESP32-S3, 512KB SRAM, 分块渲染，纯图形 UI（无文字）
  */
 
 #if 1 /* 必须为 1，否则整个文件被忽略 */
@@ -10,8 +10,8 @@
 
 #include <stdint.h>
 
-/* 颜色深度: 16bit RGB565，ST7789 标准格式 */
-#define LV_COLOR_DEPTH 16
+/* 默认颜色格式: 16bit RGB565（LVGL 9.6 起 LV_COLOR_DEPTH 已弃用，改用 LV_COLOR_FORMAT_DEFAULT） */
+#define LV_COLOR_FORMAT_DEFAULT LV_COLOR_FORMAT_RGB565
 
 /* SPI 字节序：通过 lv_display_set_color_format(LV_COLOR_FORMAT_RGB565_SWAPPED) 解决 */
 #define LV_DRAW_SW_SUPPORT_RGB565_SWAPPED 1

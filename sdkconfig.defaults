@@ -19,9 +19,20 @@ CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
 # Log level (0=None, 1=Error, 2=Warn, 3=Info, 4=Debug, 5=Verbose)
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
+# 主任务栈：app_main 在 AP 配网模式下会直接循环驱动 LVGL 渲染
+# （main.cpp 中 ui_animation_task() + lv_timer_handler）。
+# IDF 默认 3584 字节不足以完成 LVGL 9.6 软件圆角抗锯齿绘制，实测会触发
+# "stack overflow in task main" 并反复重启，故提到与 image_display_task 一致的 8KB。
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
 # Custom partition table
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Flash 容量：ESP32-S3 模组为 8MB，与 esp32-s3-devkitc-1 板型声明保持一致，
+# 否则 PlatformIO 会报 "Flash memory size mismatch"。
+# 分区表末端约 0x290000（2.7MB），8MB 容量有充足余量。
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 
 # SPIFFS filesystem
 CONFIG_SPIFFS_MAX_PARTITIONS=3

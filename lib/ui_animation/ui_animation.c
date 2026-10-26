@@ -23,12 +23,21 @@
 
 static const char *TAG = "UI";
 
-/* ---------- ST7789 引脚定义 ---------- */
-#define TFT_MOSI  1
-#define TFT_SCLK  0
-#define TFT_CS    19
-#define TFT_DC    18
-#define TFT_RST   3
+/* ---------- ST7789 引脚定义（ESP32-S3） ---------- */
+/*
+ * 选用 ESP32-S3 SPI2 的 IO_MUX 原生引脚组（GPIO10~14），SPI 走硬件直连性能最佳。
+ * 已刻意避开：
+ *   - GPIO19/GPIO20：USB_D-/D+
+ *   - GPIO0/3/45/46：strapping 脚（boot mode / JTAG 源选择）
+ *   - GPIO26~32：内部 SPI0/1（flash/PSRAM）占用
+ *   - GPIO33~37：Octal PSRAM 板子占用
+ * 若硬件接线不同，改这里即可（注意保持 DC/CS/RST 为普通可用 IO）。
+ */
+#define TFT_MOSI  2    /* FSPID   */
+#define TFT_SCLK  1    /* FSPICLK */
+#define TFT_CS    6    /* FSPICS0 */
+#define TFT_DC    5    /* FSPIQ   */
+#define TFT_RST   4    /* FSPIWP  */
 
 #define TFT_WIDTH  320
 #define TFT_HEIGHT 240
@@ -284,7 +293,7 @@ void ui_animation_show_ok(void)
     lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(circle, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(circle, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(circle, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(circle, false);
 
     /* 用两段 lv_line 画白色对勾（坐标相对于圆心 50,50） */
     /* 短边：从 (22,50) → (40,68)，长边：从 (40,68) → (72,30) */
@@ -340,7 +349,7 @@ void ui_animation_show_no_network(const char *ap_ssid)
     lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(circle, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(circle, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(circle, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(circle, false);
 
     /* 感叹号竖线：从 (50,20) → (50,58) */
     static lv_point_precise_t pts_line[2] = {{50, 20}, {50, 58}};
@@ -360,7 +369,7 @@ void ui_animation_show_no_network(const char *ap_ssid)
     lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(dot, false);
 
     /* 文字说明：热点名称和配网地址 */
     lv_obj_t *label1 = lv_label_create(scr);
