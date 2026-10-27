@@ -31,8 +31,8 @@ static const char *TAG = "MAIN";
 /* 每次图片展示后等待的时间（秒） */
 #define DISPLAY_INTERVAL_SEC 60
 
-/* 进度条更新间隔（毫秒），越小越平滑 */
-#define PROGRESS_UPDATE_MS   100
+/* 进度条更新间隔（毫秒），越小越平滑；同时决定标题滚动动画的帧率 */
+#define PROGRESS_UPDATE_MS   40
 
 /* ---------- 按钮（GPIO9）相关 ---------- */
 
@@ -166,6 +166,9 @@ static void image_display_task(void *pvParameters)
             if (state == DISPLAY_NORMAL) {
                 ui_animation_update_bottom_bar(t * 100 / total_steps);
             }
+
+            /* 驱动标题浮层上下滚动动画（整行滚到下一行） */
+            ui_animation_banner_tick();
 
             int64_t ts;
             if (xQueueReceive(s_button_queue, &ts, pdMS_TO_TICKS(PROGRESS_UPDATE_MS)) == pdTRUE) {

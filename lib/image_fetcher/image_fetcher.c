@@ -512,7 +512,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
 
     free(pool);
     free(jpeg_buf);
-    ui_animation_banner_release();
+    /* 保留排版与背景底图，交给主循环 tick 驱动标题滚动动画 */
+    ui_animation_banner_begin_animation();
     ESP_LOGI(TAG, "图片显示完成");
     return ESP_OK;
 }

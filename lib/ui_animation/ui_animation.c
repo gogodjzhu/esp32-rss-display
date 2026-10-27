@@ -677,30 +677,53 @@ void ui_animation_show_font_test(void)
 }
 
 /* ======================================================================
- *                 图片标题浮层（半透明 banner + 中文）
+ *             图片标题浮层（BBC 风格上下滚动 banner + 中文）
  * ==================================================================== */
 
-/* banner 几何：占据图片下部，底部留出 2px 进度条 */
-#define BANNER_H      46
-#define BANNER_Y0     (TFT_HEIGHT - 2 - BANNER_H)   /* 192 */
-#define BANNER_Y1     (TFT_HEIGHT - 3)              /* 237 */
-#define BANNER_PAD_X  6
-#define BANNER_FONT_PX 18
-#define BANNER_MAX_LINES 2
-#define BANNER_BG_ALPHA  150   /* 0-255，banner 背景不透明度 */
-#define BANNER_MAX_GLYPHS 96
+/* banner 几何：窗口高度为「一行 + 上下内边距」，同一时刻只显示一行；
+ * 底部保留 2px 进度条 / 评价条。 */
+#define BANNER_FONT_PX     18
+#define BANNER_PAD_X       6
+#define BANNER_PAD_Y       13         /* 行上下内边距：越大 banner 越高 */
+#define BANNER_MAX_LINES   12
+#define BANNER_MAX_GLYPHS  160
+#define BANNER_MAX_H       72          /* 背景缓冲最大高度（像素），需 >= 行高 + 2*BANNER_PAD_Y */
+#define BANNER_BG_ALPHA    150         /* 0-255，banner 底色不透明度 */
+#define BANNER_HOLD_MS     2500        /* 每行停留时间（毫秒） */
+#define BANNER_SCROLL_MS   450         /* 行切换滚动时间（毫秒） */
 
 typedef struct {
-    int16_t             x, y;       /* 屏幕坐标（左上角） */
-    uint16_t            w, h;       /* 字形位图尺寸 */
-    uint16_t            stride;     /* A8 位图行跨距 */
-    const uint8_t      *bmp;        /* A8 位图 */
-    lv_font_glyph_dsc_t dsc;        /* 用于释放字形缓存 */
+    int16_t             x;       /* 屏幕 x（含左内边距） */
+    int16_t             y_off;   /* 相对所在行顶部的 y 偏移 */
+    uint16_t            w, h;    /* 字形位图尺寸 */
+    uint16_t            stride;  /* A8 位图行跨距 */
+    const uint8_t      *bmp;     /* A8 位图 */
+    uint8_t             line;    /* 所属行索引 */
+    lv_font_glyph_dsc_t dsc;     /* 用于释放字形缓存 */
 } banner_glyph_t;
 
 static banner_glyph_t  s_banner_glyphs[BANNER_MAX_GLYPHS];
 static int             s_banner_glyph_count = 0;
-static bool            s_banner_active      = false;   /* 有标题时才绘制 banner 背景 */
+static int             s_banner_line_count  = 0;
+static bool            s_banner_active      = false;   /* 有标题时才绘制 banner */
+static bool            s_banner_capture     = false;   /* 首帧解码图片时捕获背景 */
+
+/* 运行时几何（依赖字体行高） */
+static int             s_banner_line_h = 0;
+static int             s_banner_h      = 0;
+static int             s_banner_y0     = 0;
+static int             s_banner_y1     = 0;
+
+/* banner 窗口背景像素（已叠加半透明底色），供滚动重绘复用 */
+static uint16_t        s_bg_buf[TFT_WIDTH * BANNER_MAX_H];
+static bool            s_bg_valid      = false;
+
+/* 滚动动画状态 */
+static int             s_cur_line        = 0;   /* 当前停留行 */
+static int             s_scroll          = 0;   /* 0..line_h，当前滚动偏移 */
+static bool            s_scrolling       = false;
+static int64_t         s_scroll_start_us = 0;
+static int64_t         s_hold_start_us   = 0;
 
 /* 将 uint16 RGB565 在字节序与大端之间互换（与 ui_animation_write_row 的约定一致） */
 static inline uint16_t swap16(uint16_t v)
@@ -758,7 +781,11 @@ void ui_animation_banner_release(void)
         lv_font_glyph_release_draw_data(&s_banner_glyphs[i].dsc);
     }
     s_banner_glyph_count = 0;
+    s_banner_line_count  = 0;
     s_banner_active      = false;
+    s_banner_capture     = false;
+    s_bg_valid           = false;
+    s_scrolling          = false;
 }
 
 void ui_animation_banner_prepare(const char *title)
@@ -774,16 +801,29 @@ void ui_animation_banner_prepare(const char *title)
         return;
     }
 
-    const int line_h  = font->line_height;
-    const int x_left  = BANNER_PAD_X;
-    const int max_w   = TFT_WIDTH - 2 * BANNER_PAD_X;
+    const int line_h = font->line_height;
+    if (line_h <= 0 || line_h > BANNER_MAX_H) {
+        ESP_LOGW(TAG, "字体行高 %d 异常，标题浮层不可用", line_h);
+        return;
+    }
 
-    /* 第一遍：计算换行与每个字的笔位置，确定使用行数 */
+    /* banner 窗口几何：一行高 + 上下内边距，底部留 2px 进度条 */
+    s_banner_line_h = line_h;
+    s_banner_h      = line_h + 2 * BANNER_PAD_Y;
+    if (s_banner_h > BANNER_MAX_H) s_banner_h = BANNER_MAX_H;
+    s_banner_y1     = TFT_HEIGHT - 3;
+    s_banner_y0     = s_banner_y1 - s_banner_h + 1;
+    if (s_banner_y0 < 0) s_banner_y0 = 0;
+
+    const int x_left = BANNER_PAD_X;
+    const int max_w  = TFT_WIDTH - 2 * BANNER_PAD_X;
+
+    /* 第一遍：计算换行与每个字的笔位置，确定所属行 */
     typedef struct { int16_t px; uint8_t line; const char *cp; } placed_t;
-    placed_t placed[BANNER_MAX_GLYPHS];
-    int      placed_cnt = 0;
-    int      pen_x = x_left;
-    int      line  = 0;
+    static placed_t placed[BANNER_MAX_GLYPHS];
+    int placed_cnt = 0;
+    int pen_x = x_left;
+    int line  = 0;
 
     const char *p = title;
     while (*p && placed_cnt < BANNER_MAX_GLYPHS) {
@@ -791,7 +831,7 @@ void ui_animation_banner_prepare(const char *title)
         uint32_t    cp = utf8_next(&q);
         int adv = lv_font_get_glyph_width(font, cp, 0);
 
-        if (cp == '\n') {
+        if (cp == '\n' || cp == '\r') {
             line++;
             pen_x = x_left;
             if (line >= BANNER_MAX_LINES) break;
@@ -816,11 +856,8 @@ void ui_animation_banner_prepare(const char *title)
     if (used_lines <= 0) {
         return;
     }
-    int text_h   = used_lines * line_h;
-    int y_top    = BANNER_Y0 + (BANNER_H - text_h) / 2;
-    if (y_top < BANNER_Y0) y_top = BANNER_Y0;
 
-    /* 第二遍：取字形位图并计算屏幕坐标 */
+    /* 第二遍：取字形位图，记录窗口内相对坐标（行内偏移 + 行索引） */
     for (int i = 0; i < placed_cnt; i++) {
         const char *q  = placed[i].cp;
         uint32_t    cp = utf8_next(&q);
@@ -842,42 +879,58 @@ void ui_animation_banner_prepare(const char *title)
         const lv_draw_buf_t *db = (const lv_draw_buf_t *)bmp;
 
         banner_glyph_t *g = &s_banner_glyphs[s_banner_glyph_count];
-        g->x      = (int16_t)(placed[i].px + dsc.ofs_x);
-        g->y      = (int16_t)(y_top + placed[i].line * line_h +
-                              (font->line_height - font->base_line) - dsc.box_h - dsc.ofs_y);
+        g->x      = (int16_t)placed[i].px;
+        g->y_off  = (int16_t)((font->line_height - font->base_line) - dsc.box_h - dsc.ofs_y);
         g->w      = dsc.box_w;
         g->h      = dsc.box_h;
         g->stride = (uint16_t)db->header.stride;
         g->bmp    = db->data;
+        g->line   = placed[i].line;
         g->dsc    = dsc;
         s_banner_glyph_count++;
     }
 
-    s_banner_active = (s_banner_glyph_count > 0);
-    ESP_LOGI(TAG, "标题浮层排版：%d 字形，%d 行", s_banner_glyph_count, used_lines);
-}
-
-void ui_animation_banner_apply_row(uint16_t *row, int screen_y, int x_start, int width)
-{
-    if (row == NULL || width <= 0 || screen_y < 0 || screen_y >= TFT_HEIGHT) {
+    if (s_banner_glyph_count == 0) {
         return;
     }
 
-    /* 1) 半透明深色 banner 背景（仅在确有标题时绘制） */
-    if (s_banner_active && screen_y >= BANNER_Y0 && screen_y <= BANNER_Y1) {
-        for (int i = 0; i < width; i++) {
-            int x = x_start + i;
-            if (x < 0 || x >= TFT_WIDTH) continue;
-            uint16_t real = swap16(row[i]);
-            real = blend565(real, 0, 0, 0, BANNER_BG_ALPHA);
-            row[i] = swap16(real);
-        }
-    }
+    s_banner_line_count = used_lines;
+    s_banner_active     = true;
+    s_banner_capture    = true;    /* 首帧解码图片时捕获背景 */
+    s_cur_line          = 0;
+    s_scroll            = 0;
+    s_scrolling         = false;
 
-    /* 2) 白色标题文字（按字形 alpha 混合） */
+    /* 预填黑色，避免图片未覆盖区域出现脏数据 */
+    memset(s_bg_buf, 0, sizeof(s_bg_buf));
+
+    ESP_LOGI(TAG, "标题浮层排版：%d 字形，%d 行，窗口 y=%d..%d（行高 %d）",
+             s_banner_glyph_count, s_banner_line_count,
+             s_banner_y0, s_banner_y1, s_banner_line_h);
+}
+
+/* 将当前行（滚动时叠加下一行）的标题文字混合到一行缓冲区 */
+static void banner_draw_glyphs(uint16_t *row, int screen_y, int x_start, int width)
+{
+    if (!s_banner_active || s_banner_line_h <= 0) return;
+
+    const int base_cur = s_banner_y0 + BANNER_PAD_Y - s_scroll;
+    const int base_nxt = base_cur + s_banner_line_h;
+    const int cur = s_cur_line;
+    const int nxt = s_scrolling ? ((s_cur_line + 1) % s_banner_line_count) : -1;
+
     for (int gi = 0; gi < s_banner_glyph_count; gi++) {
         const banner_glyph_t *g = &s_banner_glyphs[gi];
-        int ly = screen_y - g->y;
+        int base;
+        if ((int)g->line == cur) {
+            base = base_cur;
+        } else if (nxt >= 0 && (int)g->line == nxt) {
+            base = base_nxt;
+        } else {
+            continue;
+        }
+
+        int ly = screen_y - (base + g->y_off);
         if (ly < 0 || ly >= g->h) continue;
 
         const uint8_t *line = g->bmp + (size_t)ly * g->stride;
@@ -890,6 +943,84 @@ void ui_animation_banner_apply_row(uint16_t *row, int screen_y, int x_start, int
             real = blend565(real, 0xFF, 0xFF, 0xFF, a);
             row[x - x_start] = swap16(real);
         }
+    }
+}
+
+void ui_animation_banner_apply_row(uint16_t *row, int screen_y, int x_start, int width)
+{
+    if (row == NULL || width <= 0 || screen_y < 0 || screen_y >= TFT_HEIGHT) {
+        return;
+    }
+
+    /* 1) 半透明深色 banner 背景（仅在确有标题时绘制），
+     *    同时把结果缓存为后续滚动重绘的背景底图 */
+    if (s_banner_active && screen_y >= s_banner_y0 && screen_y <= s_banner_y1) {
+        int by = screen_y - s_banner_y0;
+        for (int i = 0; i < width; i++) {
+            int x = x_start + i;
+            if (x < 0 || x >= TFT_WIDTH) continue;
+            uint16_t real = swap16(row[i]);
+            real = blend565(real, 0, 0, 0, BANNER_BG_ALPHA);
+            row[i] = swap16(real);
+            if (s_banner_capture) {
+                s_bg_buf[by * TFT_WIDTH + x] = row[i];
+            }
+        }
+    }
+
+    /* 2) 白色标题文字（按字形 alpha 混合） */
+    banner_draw_glyphs(row, screen_y, x_start, width);
+}
+
+/* 用缓存的背景底图 + 当前滚动偏移重绘整个 banner 窗口 */
+static void banner_redraw(void)
+{
+    static uint16_t row[TFT_WIDTH];
+    for (int y = s_banner_y0; y <= s_banner_y1; y++) {
+        int by = y - s_banner_y0;
+        memcpy(row, &s_bg_buf[by * TFT_WIDTH], sizeof(uint16_t) * TFT_WIDTH);
+        banner_draw_glyphs(row, y, 0, TFT_WIDTH);
+        ui_animation_write_row(0, y, row, TFT_WIDTH);
+    }
+}
+
+void ui_animation_banner_begin_animation(void)
+{
+    s_banner_capture  = false;
+    s_bg_valid        = s_banner_active;
+    s_cur_line        = 0;
+    s_scroll          = 0;
+    s_scrolling       = false;
+    s_hold_start_us   = esp_timer_get_time();
+    s_scroll_start_us = s_hold_start_us;
+}
+
+void ui_animation_banner_tick(void)
+{
+    if (!s_banner_active || !s_bg_valid || s_banner_line_count <= 1) {
+        return;
+    }
+
+    const int64_t now = esp_timer_get_time();
+
+    if (s_scrolling) {
+        /* 滚动中：按已过时间线性推进整行位移 */
+        int64_t el = now - s_scroll_start_us;
+        if (el >= (int64_t)BANNER_SCROLL_MS * 1000) {
+            s_cur_line      = (s_cur_line + 1) % s_banner_line_count;
+            s_scroll        = 0;
+            s_scrolling     = false;
+            s_hold_start_us = now;
+        } else {
+            s_scroll = (int)((int64_t)s_banner_line_h * el /
+                             ((int64_t)BANNER_SCROLL_MS * 1000));
+        }
+        banner_redraw();
+    } else if (now - s_hold_start_us >= (int64_t)BANNER_HOLD_MS * 1000) {
+        /* 停留结束：开始滚动到下一行 */
+        s_scrolling       = true;
+        s_scroll_start_us = now;
+        s_scroll          = 0;
     }
 }
 
@@ -910,5 +1041,6 @@ void ui_animation_show_solid_banner(uint32_t bg_rgb24, const char *title)
         ui_animation_write_row(0, y, row, TFT_WIDTH);
     }
 
-    ui_animation_banner_release();
+    /* 保留排版与背景底图，交由主循环 tick 驱动滚动动画 */
+    ui_animation_banner_begin_animation();
 }
