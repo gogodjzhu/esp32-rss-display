@@ -84,6 +84,16 @@ const char *image_fetcher_get_http_headers(void);
  */
 const char *image_fetcher_get_title(void);
 
+/**
+ * @brief 获取最近一次 image_fetcher_get_next_url() 解析出的发布时间字符串
+ *
+ * 格式为后端下发的本地时间展示串（YYYY-MM-DD HH:MM），无发布时间时返回空串。
+ * 用于在标题浮层首行显示内容时间。
+ *
+ * @return 指向内部静态字符串的指针，调用方不可修改或释放
+ */
+const char *image_fetcher_get_published_at(void);
+
 #ifdef __cplusplus
 }
 #endif

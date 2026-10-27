@@ -15,6 +15,9 @@ type NextItemResponse struct {
 	Title    string `json:"title"`
 	ImageURL string `json:"image_url"`
 	Source   string `json:"source"`
+	// PublishedAt 为条目发布时间的本地时区展示字符串（YYYY-MM-DD HH:MM），
+	// 供设备端在标题浮层首行显示；无发布时间时回退为入库时间。
+	PublishedAt string `json:"published_at"`
 }
 
 func GetNextItem(w http.ResponseWriter, r *http.Request) {
@@ -71,14 +74,21 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 		imageURL = fmt.Sprintf("%s://%s/image/%d.jpg", scheme, r.Host, item.ID)
 	}
 
+	// 发布时间的展示字符串：优先使用 feed 的发布时间，缺失时回退为入库时间
+	pubTime := item.CreatedAt
+	if item.PublishedAt != nil {
+		pubTime = *item.PublishedAt
+	}
+
 	device.CurrentItemID = &item.ID
 	device.LastSeen = time.Now()
 	db.Save(&device)
 
 	resp := NextItemResponse{
-		Title:    item.Title,
-		ImageURL: imageURL,
-		Source:   feed.Name,
+		Title:       item.Title,
+		ImageURL:    imageURL,
+		Source:      feed.Name,
+		PublishedAt: pubTime.Local().Format("2006-01-02 15:04"),
 	}
 
 	w.Header().Set("Content-Type", "application/json")

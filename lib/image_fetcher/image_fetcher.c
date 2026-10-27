@@ -52,6 +52,14 @@ static char s_http_headers[512];
 #define TITLE_BUF_SIZE   384
 static char s_current_title[TITLE_BUF_SIZE];
 
+/* 当前展示条目发布时间展示串（由 image_fetcher_get_next_url 更新，空串表示无） */
+#define PUB_TIME_BUF_SIZE 32
+static char s_current_pub_time[PUB_TIME_BUF_SIZE];
+
+/* 标题浮层文本：首行为发布时间，其余行为标题（由 build_banner_text 组装） */
+#define BANNER_TEXT_BUF_SIZE (PUB_TIME_BUF_SIZE + 1 + TITLE_BUF_SIZE)
+static char s_banner_text[BANNER_TEXT_BUF_SIZE];
+
 /* 当前展示条目 ID（由 image_fetcher_get_next_url 更新，0 表示未获取） */
 static uint32_t s_current_item_id = 0;
 
@@ -357,6 +365,12 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
     }
     ESP_LOGI(TAG, "title: %s", s_current_title[0] ? s_current_title : "(空)");
 
+    /* 提取 published_at（发布时间展示串，用于标题浮层首行） */
+    if (!json_extract_string(ctx.buf, "published_at", s_current_pub_time, sizeof(s_current_pub_time))) {
+        s_current_pub_time[0] = '\0';
+    }
+    ESP_LOGI(TAG, "published_at: %s", s_current_pub_time[0] ? s_current_pub_time : "(空)");
+
     /* 解析 item_id 字段（整数），缓存供评分提交使用 */
     const char *id_key = "\"item_id\"";
     char *id_pos = strstr(ctx.buf, id_key);
@@ -377,12 +391,33 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
 }
 
 /**
+ * @brief 组装标题浮层文本
+ *
+ * 首行为发布时间（若后端下发），其余行为标题，二者以换行分隔；
+ * banner 逐行滚动时即可循环展示时间与标题。返回值指向内部静态缓冲区。
+ */
+static const char *build_banner_text(void)
+{
+    const char *time  = s_current_pub_time;
+    const char *title = s_current_title;
+
+    if (time[0] != '\0' && title[0] != '\0') {
+        snprintf(s_banner_text, sizeof(s_banner_text), "%s\n%s", time, title);
+    } else if (time[0] != '\0') {
+        snprintf(s_banner_text, sizeof(s_banner_text), "%s", time);
+    } else {
+        snprintf(s_banner_text, sizeof(s_banner_text), "%s", title);
+    }
+    return s_banner_text;
+}
+
+/**
  * @brief 无图片/图片不可用时的纯色背景 + 标题浮层
  */
 static esp_err_t image_fetcher_show_fallback(void)
 {
     ESP_LOGI(TAG, "使用纯色背景 + 标题浮层（无可用配图）");
-    ui_animation_show_solid_banner(SOLID_BG_RGB24, s_current_title);
+    ui_animation_show_solid_banner(SOLID_BG_RGB24, build_banner_text());
     return ESP_OK;
 }
 
@@ -396,7 +431,7 @@ esp_err_t image_fetcher_download_and_show(const char *url)
     ESP_LOGI(TAG, "下载图片: %s", url);
 
     /* 预排版标题浮层（在逐行写屏前准备字形，供 outfunc 叠加） */
-    ui_animation_banner_prepare(s_current_title);
+    ui_animation_banner_prepare(build_banner_text());
 
     /* 先 open 连接，获取 Content-Length，再按实际大小分配 buffer */
     esp_http_client_config_t config = {
@@ -592,4 +627,9 @@ const char *image_fetcher_get_http_headers(void)
 const char *image_fetcher_get_title(void)
 {
     return s_current_title;
+}
+
+const char *image_fetcher_get_published_at(void)
+{
+    return s_current_pub_time;
 }
