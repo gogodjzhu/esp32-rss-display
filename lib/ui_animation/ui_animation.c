@@ -775,6 +775,28 @@ static uint32_t utf8_next(const char **pp)
     return cp;
 }
 
+/* 是否为可断行的空白字符 */
+static bool cp_is_space(uint32_t cp)
+{
+    return cp == ' ' || cp == '\t';
+}
+
+/* 是否为 CJK 字符：可在任意两字之间断行（无需空格） */
+static bool cp_is_cjk(uint32_t cp)
+{
+    return (cp >= 0x1100  && cp <= 0x11FF) ||   /* 谚文字母 */
+           (cp >= 0x2E80  && cp <= 0x303F) ||   /* CJK 部首扩展 / 标点 */
+           (cp >= 0x3040  && cp <= 0x30FF) ||   /* 日文假名 */
+           (cp >= 0x3130  && cp <= 0x318F) ||   /* 谚文兼容字母 */
+           (cp >= 0x3400  && cp <= 0x4DBF) ||   /* CJK 扩展 A */
+           (cp >= 0x4E00  && cp <= 0x9FFF) ||   /* CJK 基本区 */
+           (cp >= 0xAC00  && cp <= 0xD7FF) ||   /* 谚文音节 */
+           (cp >= 0xF900  && cp <= 0xFAFF) ||   /* CJK 兼容表意 */
+           (cp >= 0xFE30  && cp <= 0xFE4F) ||   /* CJK 兼容符号 */
+           (cp >= 0xFF00  && cp <= 0xFFEF) ||   /* 全角字符 */
+           (cp >= 0x20000 && cp <= 0x2FA1F);    /* CJK 扩展 B~F */
+}
+
 void ui_animation_banner_release(void)
 {
     for (int i = 0; i < s_banner_glyph_count; i++) {
@@ -818,38 +840,101 @@ void ui_animation_banner_prepare(const char *title)
     const int x_left = BANNER_PAD_X;
     const int max_w  = TFT_WIDTH - 2 * BANNER_PAD_X;
 
-    /* 第一遍：计算换行与每个字的笔位置，确定所属行 */
+    /* 第一遍：按常规文本规则换行（拉丁词整体不拆分，CJK 可逐字断行），
+     * 并记录每个字的笔位置与所属行 */
     typedef struct { int16_t px; uint8_t line; const char *cp; } placed_t;
     static placed_t placed[BANNER_MAX_GLYPHS];
     int placed_cnt = 0;
     int pen_x = x_left;
     int line  = 0;
+    int pending_space_w = 0;   /* 上一个词之后累积的空白宽度（换行时丢弃） */
 
     const char *p = title;
     while (*p && placed_cnt < BANNER_MAX_GLYPHS) {
-        const char *q  = p;
-        uint32_t    cp = utf8_next(&q);
-        int adv = lv_font_get_glyph_width(font, cp, 0);
+        /* 显式换行 */
+        {
+            const char *q0 = p;
+            uint32_t    c0 = utf8_next(&q0);
+            if (c0 == '\n' || c0 == '\r') {
+                p = q0;
+                line++;
+                pen_x = x_left;
+                pending_space_w = 0;
+                if (line >= BANNER_MAX_LINES) break;
+                continue;
+            }
+            /* 空白：累积间距，留到下一个词前再决定是否换行 */
+            if (cp_is_space(c0)) {
+                pending_space_w += lv_font_get_glyph_width(font, c0, 0);
+                p = q0;
+                continue;
+            }
+        }
 
-        if (cp == '\n' || cp == '\r') {
+        /* 确定一个「断行单元」的范围：CJK 单字，或一段连续的非空白非 CJK 词 */
+        const char *unit_start = p;
+        const char *unit_end;
+        {
+            const char *q = p;
+            uint32_t    c = utf8_next(&q);
+            if (cp_is_cjk(c)) {
+                unit_end = q;   /* 单个字 */
+            } else {
+                const char *s = p;
+                while (*s) {
+                    const char *t = s;
+                    uint32_t    cc = utf8_next(&t);
+                    if (cp_is_space(cc) || cp_is_cjk(cc) ||
+                        cc == '\n' || cc == '\r') {
+                        break;
+                    }
+                    s = t;
+                }
+                unit_end = s;
+            }
+        }
+
+        /* 计算单元宽度 */
+        int unit_w = 0;
+        for (const char *s = unit_start; s < unit_end; ) {
+            uint32_t c = utf8_next(&s);
+            unit_w += lv_font_get_glyph_width(font, c, 0);
+        }
+
+        /* 放不下则整词换到下一行（行首丢弃空白） */
+        int sep = (pen_x > x_left) ? pending_space_w : 0;
+        if (pen_x > x_left && pen_x + sep + unit_w > x_left + max_w) {
             line++;
             pen_x = x_left;
-            if (line >= BANNER_MAX_LINES) break;
-            p = q;
-            continue;
-        }
-        if (pen_x + adv > x_left + max_w && pen_x > x_left) {
-            line++;
-            pen_x = x_left;
+            sep = 0;
             if (line >= BANNER_MAX_LINES) break;
         }
-        placed[placed_cnt].px   = (int16_t)pen_x;
-        placed[placed_cnt].line = (uint8_t)line;
-        placed[placed_cnt].cp   = p;
-        placed_cnt++;
+        if (sep > 0) {
+            pen_x += sep;   /* 空白只占位，不绘制 */
+        }
+        pending_space_w = 0;
 
-        pen_x += adv;
-        p = q;
+        /* 放置单元内每个字；超长单词退化为逐字断行 */
+        for (const char *s = unit_start; s < unit_end && placed_cnt < BANNER_MAX_GLYPHS; ) {
+            const char *t = s;
+            uint32_t    c = utf8_next(&t);
+            int adv = lv_font_get_glyph_width(font, c, 0);
+
+            if (pen_x > x_left && pen_x + adv > x_left + max_w) {
+                line++;
+                pen_x = x_left;
+                if (line >= BANNER_MAX_LINES) break;
+            }
+            placed[placed_cnt].px   = (int16_t)pen_x;
+            placed[placed_cnt].line = (uint8_t)line;
+            placed[placed_cnt].cp   = s;
+            placed_cnt++;
+
+            pen_x += adv;
+            s = t;
+        }
+
+        p = unit_end;
     }
 
     int used_lines = (placed_cnt > 0) ? (placed[placed_cnt - 1].line + 1) : 0;
@@ -879,7 +964,7 @@ void ui_animation_banner_prepare(const char *title)
         const lv_draw_buf_t *db = (const lv_draw_buf_t *)bmp;
 
         banner_glyph_t *g = &s_banner_glyphs[s_banner_glyph_count];
-        g->x      = (int16_t)placed[i].px;
+        g->x      = (int16_t)(placed[i].px + dsc.ofs_x);
         g->y_off  = (int16_t)((font->line_height - font->base_line) - dsc.box_h - dsc.ofs_y);
         g->w      = dsc.box_w;
         g->h      = dsc.box_h;
