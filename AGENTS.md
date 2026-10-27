@@ -34,7 +34,7 @@ pio run --target clean           # 清理
 
 **注意：** `platformio.ini` 中的 `build_unflags = -fuse-cxa-atexit` 是 ESP-IDF 所需的 C++ ABI 兼容性配置，禁止删除。
 
-**TFT（ST7789）接线：** SPI2 IO_MUX 原生引脚组 —— MOSI=GPIO11、SCLK=GPIO12、CS=GPIO10、DC=GPIO13、RST=GPIO14；按键接 GPIO9（内部上拉，下降沿中断）。定义见 `lib/ui_animation/ui_animation.c` 顶部。
+**TFT（ST7789）接线：** SPI2 IO_MUX 原生引脚组 —— MOSI=GPIO11、SCLK=GPIO12、CS=GPIO10、DC=GPIO13、RST=GPIO14；交互按键用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。定义见 `lib/ui_animation/ui_animation.c` 顶部。
 
 **配置**通过 Kconfig（`src/Kconfig`）管理。RSS URL 默认为 `http://192.168.3.107:1200/nytimes`（本地 RSSHub）。在 `sdkconfig.defaults` 中递增 `FIRMWARE_VERSION` 可在下次启动时触发 NVS 清除。当前值为 `CONFIG_FIRMWARE_VERSION=6`。
 

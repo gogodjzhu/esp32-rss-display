@@ -25,6 +25,9 @@
 
 static const char *TAG = "MAIN";
 
+/* 交互按钮 GPIO：板载 BOOT 键（strapping 引脚，运行期作普通输入） */
+#define BUTTON_GPIO GPIO_NUM_0
+
 /* 图片 URL 缓冲区最大长度 */
 #define IMAGE_URL_BUF_LEN 512
 
@@ -34,7 +37,7 @@ static const char *TAG = "MAIN";
 /* 进度条更新间隔（毫秒），越小越平滑；同时决定标题滚动动画的帧率 */
 #define PROGRESS_UPDATE_MS   40
 
-/* ---------- 按钮（GPIO9）相关 ---------- */
+/* ---------- 交互按钮（板载 BOOT 键 / GPIO0）相关 ---------- */
 
 /* 图片显示任务句柄，供 ISR 发送通知 */
 static TaskHandle_t s_display_task_handle = NULL;
@@ -43,7 +46,7 @@ static TaskHandle_t s_display_task_handle = NULL;
 static QueueHandle_t s_button_queue = NULL;
 
 /**
- * @brief GPIO9 中断服务函数（IRAM，下降沿触发）
+ * @brief 交互按钮（GPIO0）中断服务函数（IRAM，下降沿触发）
  *
  * 带 50ms 软件防抖；触发后将当前时间戳（微秒）发送到 s_button_queue，
  * 由 image_display_task 在任务上下文完成双击检测和手势判断。
@@ -65,7 +68,10 @@ static void IRAM_ATTR gpio_button_isr(void *arg)
 }
 
 /**
- * @brief 初始化 GPIO9 为输入（内部上拉，下降沿中断）
+ * @brief 初始化交互按钮 GPIO0（板载 BOOT 键）为输入（内部上拉，下降沿中断）
+ *
+ * 注意：GPIO0 是 strapping 引脚，复位/上电瞬间若被按下（拉低）会进入 UART
+ * 下载模式。运行期作为普通输入使用没问题；上电时不要按住 BOOT 即可。
  */
 static void button_init(void)
 {
@@ -73,7 +79,7 @@ static void button_init(void)
     s_button_queue = xQueueCreate(4, sizeof(int64_t));
 
     gpio_config_t cfg = {
-        .pin_bit_mask  = (1ULL << GPIO_NUM_9),
+        .pin_bit_mask  = (1ULL << BUTTON_GPIO),
         .mode          = GPIO_MODE_INPUT,
         .pull_up_en    = GPIO_PULLUP_ENABLE,
         .pull_down_en  = GPIO_PULLDOWN_DISABLE,
@@ -81,8 +87,8 @@ static void button_init(void)
     };
     gpio_config(&cfg);
     gpio_install_isr_service(0);
-    gpio_isr_handler_add(GPIO_NUM_9, gpio_button_isr, NULL);
-    ESP_LOGI(TAG, "按钮 GPIO9 已初始化");
+    gpio_isr_handler_add(BUTTON_GPIO, gpio_button_isr, NULL);
+    ESP_LOGI(TAG, "交互按钮 GPIO%d（BOOT）已初始化", BUTTON_GPIO);
 }
 
 /* ---------- 图片显示任务 ---------- */
@@ -276,7 +282,7 @@ extern "C" void app_main()
     image_fetcher_init();
     ui_animation_show_connecting(image_fetcher_get_backend_url());
 
-    /* 初始化按钮 GPIO9，按下后立即刷新图片 */
+    /* 初始化交互按钮（板载 BOOT/GPIO0）：单击下一张、双击进评分 */
     button_init();
 
     /* 启动 HTTP 管理服务器（提供 /、/api/status、/reset 等页面） */
