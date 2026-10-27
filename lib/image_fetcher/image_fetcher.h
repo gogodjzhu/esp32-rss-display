@@ -75,6 +75,15 @@ const char *image_fetcher_get_backend_url(void);
  */
 const char *image_fetcher_get_http_headers(void);
 
+/**
+ * @brief 获取最近一次 image_fetcher_get_next_url() 解析出的条目标题（UTF-8）
+ *
+ * 用于在图片底部浮层显示标题，可能包含中文。无标题时返回空串。
+ *
+ * @return 指向内部静态字符串的指针，调用方不可修改或释放
+ */
+const char *image_fetcher_get_title(void);
+
 #ifdef __cplusplus
 }
 #endif

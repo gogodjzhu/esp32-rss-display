@@ -13,6 +13,7 @@
 #define UI_ANIMATION_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,6 +57,26 @@ void ui_animation_show_rating_bar(int sel);
 /* 显示评分提交结果状态栏（覆盖底部 2px，直接写 TFT）
  * success=true：全绿 (0x2ECC71)；success=false：全红 (0xE74C3C) */
 void ui_animation_show_submit_bar(bool success);
+
+/* 中文点阵字体测试画面：显示多段常用汉字/标点/中英混排，用于验证字体 */
+void ui_animation_show_font_test(void);
+
+/* ---------- 图片标题浮层（半透明 banner + 中文标题） ---------- */
+
+/* 预排版标题浮层：解析 UTF-8、换行、取字形位图。应在写图片前调用。
+ * title 为 NULL/空串时不显示浮层。完成后需调用 release。 */
+void ui_animation_banner_prepare(const char *title);
+
+/* 释放标题浮层占用的字形缓存 */
+void ui_animation_banner_release(void);
+
+/* 对一行 RGB565（字节交换序，与 ui_animation_write_row 一致）叠加
+ * 半透明 banner 背景与标题文字。screen_y 为该行屏幕 Y 坐标，
+ * row 覆盖屏幕 x ∈ [x_start, x_start+width)。 */
+void ui_animation_banner_apply_row(uint16_t *row, int screen_y, int x_start, int width);
+
+/* 无图片时的纯色背景直接显示（整屏填充 bg_rgb24）并在其上叠加标题浮层 */
+void ui_animation_show_solid_banner(uint32_t bg_rgb24, const char *title);
 
 #ifdef __cplusplus
 }

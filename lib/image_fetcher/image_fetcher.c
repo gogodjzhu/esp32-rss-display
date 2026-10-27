@@ -42,8 +42,15 @@ static char s_http_headers[512];
 #define IMAGE_DISP_ROWS  240           /* 图片写满全屏，底部 2px 进度条叠加 */
 #define TFT_WIDTH        320
 
+/* 无图片（或图片不可用）时的纯色背景，深蓝灰，衬托白色标题 */
+#define SOLID_BG_RGB24   0x203040
+
 /* ---------- JSON 响应接收缓冲区 ---------- */
-#define JSON_BUF_SIZE    512
+#define JSON_BUF_SIZE    2048
+
+/* 当前展示条目标题（UTF-8，由 image_fetcher_get_next_url 更新） */
+#define TITLE_BUF_SIZE   384
+static char s_current_title[TITLE_BUF_SIZE];
 
 /* 当前展示条目 ID（由 image_fetcher_get_next_url 更新，0 表示未获取） */
 static uint32_t s_current_item_id = 0;
@@ -102,6 +109,9 @@ static UINT jpeg_outfunc(JDEC *jdec, void *bitmap, JRECT *rect)
             /* 字节序交换（与 LVGL LV_COLOR_FORMAT_RGB565_SWAPPED 一致） */
             row_buf[col] = (px >> 8) | (px << 8);
         }
+
+        /* 叠加底部标题浮层（半透明 banner + 中文） */
+        ui_animation_banner_apply_row(row_buf, y, rect->left, block_w);
 
         ui_animation_write_row(rect->left, y, row_buf, block_w);
         src += block_w * 3;
@@ -191,6 +201,111 @@ static void apply_custom_headers(esp_http_client_handle_t client)
     }
 }
 
+/* ---------- 轻量 JSON 字符串提取（无需第三方库） ---------- */
+
+/* 解析 4 位十六进制 */
+static uint32_t json_hex4(const char *p)
+{
+    uint32_t v = 0;
+    for (int i = 0; i < 4 && p[i]; i++) {
+        char c = p[i];
+        v <<= 4;
+        if      (c >= '0' && c <= '9') v |= (uint32_t)(c - '0');
+        else if (c >= 'a' && c <= 'f') v |= (uint32_t)(c - 'a' + 10);
+        else if (c >= 'A' && c <= 'F') v |= (uint32_t)(c - 'A' + 10);
+        else break;
+    }
+    return v;
+}
+
+/* 将 Unicode 码点按 UTF-8 追加到 out，返回新的写入位置 */
+static int json_utf8_append(char *out, size_t out_len, int pos, uint32_t cp)
+{
+    if (cp < 0x80) {
+        if (pos < (int)out_len - 1) out[pos++] = (char)cp;
+    } else if (cp < 0x800) {
+        if (pos < (int)out_len - 2) {
+            out[pos++] = (char)(0xC0 | (cp >> 6));
+            out[pos++] = (char)(0x80 | (cp & 0x3F));
+        }
+    } else if (cp < 0x10000) {
+        if (pos < (int)out_len - 3) {
+            out[pos++] = (char)(0xE0 | (cp >> 12));
+            out[pos++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[pos++] = (char)(0x80 | (cp & 0x3F));
+        }
+    } else {
+        if (pos < (int)out_len - 4) {
+            out[pos++] = (char)(0xF0 | (cp >> 18));
+            out[pos++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+            out[pos++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[pos++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+    return pos;
+}
+
+/**
+ * @brief 从 JSON 文本中提取指定 key 的字符串值
+ *
+ * 支持常见转义（\" \\ \/ \n \r \t \b \f \uXXXX，含代理对）。找不到 key
+ * 或值格式异常时返回 false，out 置空串。用于解析 image_url / title。
+ */
+static bool json_extract_string(const char *json, const char *key, char *out, size_t out_len)
+{
+    if (out_len == 0) return false;
+    out[0] = '\0';
+
+    char pattern[64];
+    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
+
+    const char *k = strstr(json, pattern);
+    if (k == NULL) return false;
+
+    const char *p = k + strlen(pattern);
+    while (*p == ' ' || *p == ':' || *p == '\t') p++;
+    if (*p != '"') return false;
+    p++;
+
+    int pos = 0;
+    while (*p && *p != '"') {
+        if (*p == '\\' && p[1] != '\0') {
+            p++;
+            switch (*p) {
+            case 'n': if (pos < (int)out_len - 1) out[pos++] = '\n'; p++; break;
+            case 'r': if (pos < (int)out_len - 1) out[pos++] = '\r'; p++; break;
+            case 't': if (pos < (int)out_len - 1) out[pos++] = '\t'; p++; break;
+            case 'b': if (pos < (int)out_len - 1) out[pos++] = '\b'; p++; break;
+            case 'f': if (pos < (int)out_len - 1) out[pos++] = '\f'; p++; break;
+            case 'u': {
+                uint32_t cp = json_hex4(p + 1);
+                p += 5;
+                /* 处理 UTF-16 代理对 */
+                if (cp >= 0xD800 && cp <= 0xDBFF && p[0] == '\\' && p[1] == 'u') {
+                    uint32_t lo = json_hex4(p + 2);
+                    if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        p += 6;
+                    }
+                }
+                pos = json_utf8_append(out, out_len, pos, cp);
+                break;
+            }
+            default:
+                if (pos < (int)out_len - 1) out[pos++] = *p;
+                p++;
+                break;
+            }
+        } else {
+            if (pos < (int)out_len - 1) out[pos++] = *p;
+            p++;
+        }
+    }
+
+    out[pos] = '\0';
+    return true;
+}
+
 esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
 {
     /* 直接使用 backend_url 作为完整请求地址，不再自动拼接尾缀 */
@@ -228,41 +343,19 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
 
     ESP_LOGD(TAG, "响应 JSON: %s", ctx.buf);
 
-    /* 从 JSON 响应中提取 image_url 字段值（简单字符串搜索，无需第三方库）
-     * 期望格式：{ "image_url": "http://..." , ... }
-     */
-    const char *key = "\"image_url\"";
-    char *key_pos = strstr(ctx.buf, key);
-    if (!key_pos) {
-        ESP_LOGE(TAG, "JSON 中无 image_url 字段");
-        return ESP_FAIL;
+    /* 提取 image_url（可能为空字符串：后端条目没有可用配图，此时用纯色背景） */
+    url_buf[0] = '\0';
+    if (json_extract_string(ctx.buf, "image_url", url_buf, buf_len)) {
+        ESP_LOGI(TAG, "image_url: %s", url_buf[0] ? url_buf : "(空，使用纯色背景)");
+    } else {
+        ESP_LOGW(TAG, "JSON 中无 image_url 字段，使用纯色背景");
     }
 
-    /* 跳过 key、冒号、空白、引号 */
-    char *val_start = key_pos + strlen(key);
-    while (*val_start == ' ' || *val_start == ':' || *val_start == '\t') val_start++;
-    if (*val_start != '"') {
-        ESP_LOGE(TAG, "image_url 值格式错误");
-        return ESP_FAIL;
+    /* 提取 title（UTF-8，可能含中文；用于图片底部浮层） */
+    if (!json_extract_string(ctx.buf, "title", s_current_title, sizeof(s_current_title))) {
+        s_current_title[0] = '\0';
     }
-    val_start++;  /* 跳过开头引号 */
-
-    /* 找到结尾引号 */
-    char *val_end = strchr(val_start, '"');
-    if (!val_end) {
-        ESP_LOGE(TAG, "image_url 字符串未闭合");
-        return ESP_FAIL;
-    }
-
-    size_t val_len = (size_t)(val_end - val_start);
-    if (val_len == 0 || val_len >= buf_len) {
-        ESP_LOGE(TAG, "image_url 长度异常: %d", (int)val_len);
-        return ESP_FAIL;
-    }
-
-    memcpy(url_buf, val_start, val_len);
-    url_buf[val_len] = '\0';
-    ESP_LOGI(TAG, "image_url: %s", url_buf);
+    ESP_LOGI(TAG, "title: %s", s_current_title[0] ? s_current_title : "(空)");
 
     /* 解析 item_id 字段（整数），缓存供评分提交使用 */
     const char *id_key = "\"item_id\"";
@@ -283,9 +376,27 @@ esp_err_t image_fetcher_get_next_url(char *url_buf, size_t buf_len)
     return ESP_OK;
 }
 
+/**
+ * @brief 无图片/图片不可用时的纯色背景 + 标题浮层
+ */
+static esp_err_t image_fetcher_show_fallback(void)
+{
+    ESP_LOGI(TAG, "使用纯色背景 + 标题浮层（无可用配图）");
+    ui_animation_show_solid_banner(SOLID_BG_RGB24, s_current_title);
+    return ESP_OK;
+}
+
 esp_err_t image_fetcher_download_and_show(const char *url)
 {
+    /* 无图片 URL：直接纯色背景 + 标题浮层 */
+    if (url == NULL || url[0] == '\0') {
+        return image_fetcher_show_fallback();
+    }
+
     ESP_LOGI(TAG, "下载图片: %s", url);
+
+    /* 预排版标题浮层（在逐行写屏前准备字形，供 outfunc 叠加） */
+    ui_animation_banner_prepare(s_current_title);
 
     /* 先 open 连接，获取 Content-Length，再按实际大小分配 buffer */
     esp_http_client_config_t config = {
@@ -297,7 +408,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) {
         ESP_LOGE(TAG, "HTTP client 初始化失败");
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     apply_custom_headers(client);
@@ -306,7 +418,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTP open 失败: %s", esp_err_to_name(err));
         esp_http_client_cleanup(client);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     int content_len = esp_http_client_fetch_headers(client);
@@ -316,7 +429,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
         ESP_LOGE(TAG, "HTTP 状态码: %d", status);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     /* 确定分配大小：Content-Length 未知时用上限，已知时按实际大小（不超上限） */
@@ -327,7 +441,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
         ESP_LOGE(TAG, "Content-Length %d 超出上限 %d", content_len, (int)JPEG_BUF_MAX);
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     uint8_t *jpeg_buf = (uint8_t *)malloc(alloc_size);
@@ -337,7 +452,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
                  (int)heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     /* 读取响应体 */
@@ -354,7 +470,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
     if (total_read == 0) {
         ESP_LOGE(TAG, "未读取到任何数据");
         free(jpeg_buf);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     ESP_LOGI(TAG, "JPEG 下载完成，大小: %d bytes（分配: %d bytes）", total_read, (int)alloc_size);
@@ -364,7 +481,8 @@ esp_err_t image_fetcher_download_and_show(const char *url)
     if (!pool) {
         ESP_LOGE(TAG, "malloc TJpgDec 内存池失败");
         free(jpeg_buf);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     /* 初始化 TJpgDec 解码器 */
@@ -380,12 +498,13 @@ esp_err_t image_fetcher_download_and_show(const char *url)
         ESP_LOGE(TAG, "jd_prepare 失败: %d", jres);
         free(pool);
         free(jpeg_buf);
-        return ESP_FAIL;
+        ui_animation_banner_release();
+        return image_fetcher_show_fallback();
     }
 
     ESP_LOGI(TAG, "JPEG 尺寸: %dx%d，开始解码...", jdec.width, jdec.height);
 
-    /* 解码（scale=0 即原始尺寸），outfunc 负责写屏 */
+    /* 解码（scale=0 即原始尺寸），outfunc 负责写屏并叠加标题浮层 */
     jres = jd_decomp(&jdec, jpeg_outfunc, 0);
     if (jres != JDR_OK) {
         ESP_LOGW(TAG, "jd_decomp 返回: %d（可能为正常中断）", jres);
@@ -393,6 +512,7 @@ esp_err_t image_fetcher_download_and_show(const char *url)
 
     free(pool);
     free(jpeg_buf);
+    ui_animation_banner_release();
     ESP_LOGI(TAG, "图片显示完成");
     return ESP_OK;
 }
@@ -466,4 +586,9 @@ const char *image_fetcher_get_http_headers(void)
 {
     if (s_http_headers[0] == '\0') return "[]";
     return s_http_headers;
+}
+
+const char *image_fetcher_get_title(void)
+{
+    return s_current_title;
 }

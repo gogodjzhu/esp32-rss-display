@@ -20,6 +20,7 @@
 #include "lv_conf.h"
 #include "lvgl.h"
 #include "ui_animation.h"
+#include "cjk_font.h"
 
 static const char *TAG = "UI";
 
@@ -247,6 +248,10 @@ void ui_animation_init(void)
 {
     tft_init();
     lvgl_init();
+
+    /* 加载中文子集字体（从 font flash 分区 mmap），失败不致命，回退默认字体 */
+    cjk_font_init();
+
     s_last_tick_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
 
     /* 初始显示空白深色背景 */
@@ -608,4 +613,302 @@ void ui_animation_show_submit_bar(bool success)
     ui_animation_write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
 
     #undef RGB24_TO_565_SWAPPED
+}
+
+/* ======================================================================
+ *                       中文点阵字体测试画面
+ * ==================================================================== */
+
+/**
+ * @brief 选择中文字体；不可用时回退 LVGL 默认字体
+ */
+static const lv_font_t *pick_cjk_font(int size_px)
+{
+    const lv_font_t *font = cjk_font_get(size_px);
+    return font ? font : LV_FONT_DEFAULT;
+}
+
+void ui_animation_show_font_test(void)
+{
+    ui_reset_screen();
+
+    lv_obj_t *scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101018), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+
+    /* 标题（24px） */
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, "中文显示测试");
+    lv_obj_set_style_text_font(title, pick_cjk_font(24), LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_obj_set_pos(title, 6, 4);
+
+    /* 副标题：数字与中英混排（16px） */
+    lv_obj_t *sub = lv_label_create(scr);
+    lv_label_set_text(sub, "0123456789 ABC abc ！？，。、“”（）《》");
+    lv_obj_set_style_text_font(sub, pick_cjk_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_color(sub, lv_color_hex(0x9be7ff), LV_PART_MAIN);
+    lv_obj_set_pos(sub, 6, 34);
+
+    /* 正文一：《千字文》（16px，自动换行，约 3 行） */
+    lv_obj_t *body1 = lv_label_create(scr);
+    lv_label_set_text(body1,
+        "天地玄黄，宇宙洪荒。日月盈昃，辰宿列张。寒来暑往，秋收冬藏。"
+        "闰余成岁，律吕调阳。云腾致雨，露结为霜。");
+    lv_obj_set_style_text_font(body1, pick_cjk_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_color(body1, lv_color_hex(0xe8e8e8), LV_PART_MAIN);
+    lv_label_set_long_mode(body1, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(body1, 308);
+    lv_obj_set_pos(body1, 6, 58);
+
+    /* 正文二：《兰亭集序》+《百家姓》（16px，约 3 行） */
+    lv_obj_t *body2 = lv_label_create(scr);
+    lv_label_set_text(body2,
+        "永和九年，岁在癸丑，暮春之初，会于会稽山阴之兰亭。"
+        "赵钱孙李，周吴郑王，冯陈褚卫，蒋沈韩杨。");
+    lv_obj_set_style_text_font(body2, pick_cjk_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_color(body2, lv_color_hex(0xe8e8e8), LV_PART_MAIN);
+    lv_label_set_long_mode(body2, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(body2, 308);
+    lv_obj_set_pos(body2, 6, 142);
+
+    /* 立即渲染一帧 */
+    ui_animation_task();
+}
+
+/* ======================================================================
+ *                 图片标题浮层（半透明 banner + 中文）
+ * ==================================================================== */
+
+/* banner 几何：占据图片下部，底部留出 2px 进度条 */
+#define BANNER_H      46
+#define BANNER_Y0     (TFT_HEIGHT - 2 - BANNER_H)   /* 192 */
+#define BANNER_Y1     (TFT_HEIGHT - 3)              /* 237 */
+#define BANNER_PAD_X  6
+#define BANNER_FONT_PX 18
+#define BANNER_MAX_LINES 2
+#define BANNER_BG_ALPHA  150   /* 0-255，banner 背景不透明度 */
+#define BANNER_MAX_GLYPHS 96
+
+typedef struct {
+    int16_t             x, y;       /* 屏幕坐标（左上角） */
+    uint16_t            w, h;       /* 字形位图尺寸 */
+    uint16_t            stride;     /* A8 位图行跨距 */
+    const uint8_t      *bmp;        /* A8 位图 */
+    lv_font_glyph_dsc_t dsc;        /* 用于释放字形缓存 */
+} banner_glyph_t;
+
+static banner_glyph_t  s_banner_glyphs[BANNER_MAX_GLYPHS];
+static int             s_banner_glyph_count = 0;
+static bool            s_banner_active      = false;   /* 有标题时才绘制 banner 背景 */
+
+/* 将 uint16 RGB565 在字节序与大端之间互换（与 ui_animation_write_row 的约定一致） */
+static inline uint16_t swap16(uint16_t v)
+{
+    return (uint16_t)((v >> 8) | (v << 8));
+}
+
+/* RGB565 前景/背景混合，a 为 0-255 不透明度 */
+static inline uint16_t blend565(uint16_t bg, uint8_t fr, uint8_t fg, uint8_t fb, uint8_t a)
+{
+    int br = (bg >> 11) & 0x1F;
+    int bgc = (bg >> 5) & 0x3F;
+    int bb = bg & 0x1F;
+    int fr5 = fr >> 3, fg6 = fg >> 2, fb5 = fb >> 3;
+
+    int nr = br  + (((fr5 - br)  * a + 127) / 255);
+    int ng = bgc + (((fg6 - bgc) * a + 127) / 255);
+    int nb = bb  + (((fb5 - bb)  * a + 127) / 255);
+
+    if (nr < 0) nr = 0; else if (nr > 31) nr = 31;
+    if (ng < 0) ng = 0; else if (ng > 63) ng = 63;
+    if (nb < 0) nb = 0; else if (nb > 31) nb = 31;
+
+    return (uint16_t)((nr << 11) | (ng << 5) | nb);
+}
+
+/* 解码一个 UTF-8 码点；非法序列按单字节处理。pp 会前进 */
+static uint32_t utf8_next(const char **pp)
+{
+    const uint8_t *p = (const uint8_t *)*pp;
+    uint32_t cp = *p;
+
+    if (cp < 0x80) {
+        *pp = (const char *)(p + 1);
+        return cp;
+    } else if ((cp & 0xE0) == 0xC0 && p[1]) {
+        cp = ((cp & 0x1F) << 6) | (p[1] & 0x3F);
+        *pp = (const char *)(p + 2);
+    } else if ((cp & 0xF0) == 0xE0 && p[1] && p[2]) {
+        cp = ((cp & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+        *pp = (const char *)(p + 3);
+    } else if ((cp & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+        cp = ((cp & 0x07) << 18) | ((p[1] & 0x3F) << 12) |
+             ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+        *pp = (const char *)(p + 4);
+    } else {
+        *pp = (const char *)(p + 1);
+    }
+    return cp;
+}
+
+void ui_animation_banner_release(void)
+{
+    for (int i = 0; i < s_banner_glyph_count; i++) {
+        lv_font_glyph_release_draw_data(&s_banner_glyphs[i].dsc);
+    }
+    s_banner_glyph_count = 0;
+    s_banner_active      = false;
+}
+
+void ui_animation_banner_prepare(const char *title)
+{
+    ui_animation_banner_release();
+
+    if (title == NULL || title[0] == '\0') {
+        return;
+    }
+
+    const lv_font_t *font = cjk_font_get(BANNER_FONT_PX);
+    if (font == NULL) {
+        return;
+    }
+
+    const int line_h  = font->line_height;
+    const int x_left  = BANNER_PAD_X;
+    const int max_w   = TFT_WIDTH - 2 * BANNER_PAD_X;
+
+    /* 第一遍：计算换行与每个字的笔位置，确定使用行数 */
+    typedef struct { int16_t px; uint8_t line; const char *cp; } placed_t;
+    placed_t placed[BANNER_MAX_GLYPHS];
+    int      placed_cnt = 0;
+    int      pen_x = x_left;
+    int      line  = 0;
+
+    const char *p = title;
+    while (*p && placed_cnt < BANNER_MAX_GLYPHS) {
+        const char *q  = p;
+        uint32_t    cp = utf8_next(&q);
+        int adv = lv_font_get_glyph_width(font, cp, 0);
+
+        if (cp == '\n') {
+            line++;
+            pen_x = x_left;
+            if (line >= BANNER_MAX_LINES) break;
+            p = q;
+            continue;
+        }
+        if (pen_x + adv > x_left + max_w && pen_x > x_left) {
+            line++;
+            pen_x = x_left;
+            if (line >= BANNER_MAX_LINES) break;
+        }
+        placed[placed_cnt].px   = (int16_t)pen_x;
+        placed[placed_cnt].line = (uint8_t)line;
+        placed[placed_cnt].cp   = p;
+        placed_cnt++;
+
+        pen_x += adv;
+        p = q;
+    }
+
+    int used_lines = (placed_cnt > 0) ? (placed[placed_cnt - 1].line + 1) : 0;
+    if (used_lines <= 0) {
+        return;
+    }
+    int text_h   = used_lines * line_h;
+    int y_top    = BANNER_Y0 + (BANNER_H - text_h) / 2;
+    if (y_top < BANNER_Y0) y_top = BANNER_Y0;
+
+    /* 第二遍：取字形位图并计算屏幕坐标 */
+    for (int i = 0; i < placed_cnt; i++) {
+        const char *q  = placed[i].cp;
+        uint32_t    cp = utf8_next(&q);
+        uint32_t    next = 0;
+        if (*q) { const char *q2 = q; next = utf8_next(&q2); }
+
+        lv_font_glyph_dsc_t dsc;
+        if (!lv_font_get_glyph_dsc(font, &dsc, cp, next)) {
+            continue;
+        }
+        if (dsc.box_w == 0 || dsc.box_h == 0) {
+            continue;   /* 空格等无位图字形 */
+        }
+        const void *bmp = lv_font_get_glyph_bitmap(&dsc, NULL);
+        if (bmp == NULL) {
+            lv_font_glyph_release_draw_data(&dsc);
+            continue;
+        }
+        const lv_draw_buf_t *db = (const lv_draw_buf_t *)bmp;
+
+        banner_glyph_t *g = &s_banner_glyphs[s_banner_glyph_count];
+        g->x      = (int16_t)(placed[i].px + dsc.ofs_x);
+        g->y      = (int16_t)(y_top + placed[i].line * line_h +
+                              (font->line_height - font->base_line) - dsc.box_h - dsc.ofs_y);
+        g->w      = dsc.box_w;
+        g->h      = dsc.box_h;
+        g->stride = (uint16_t)db->header.stride;
+        g->bmp    = db->data;
+        g->dsc    = dsc;
+        s_banner_glyph_count++;
+    }
+
+    s_banner_active = (s_banner_glyph_count > 0);
+    ESP_LOGI(TAG, "标题浮层排版：%d 字形，%d 行", s_banner_glyph_count, used_lines);
+}
+
+void ui_animation_banner_apply_row(uint16_t *row, int screen_y, int x_start, int width)
+{
+    if (row == NULL || width <= 0 || screen_y < 0 || screen_y >= TFT_HEIGHT) {
+        return;
+    }
+
+    /* 1) 半透明深色 banner 背景（仅在确有标题时绘制） */
+    if (s_banner_active && screen_y >= BANNER_Y0 && screen_y <= BANNER_Y1) {
+        for (int i = 0; i < width; i++) {
+            int x = x_start + i;
+            if (x < 0 || x >= TFT_WIDTH) continue;
+            uint16_t real = swap16(row[i]);
+            real = blend565(real, 0, 0, 0, BANNER_BG_ALPHA);
+            row[i] = swap16(real);
+        }
+    }
+
+    /* 2) 白色标题文字（按字形 alpha 混合） */
+    for (int gi = 0; gi < s_banner_glyph_count; gi++) {
+        const banner_glyph_t *g = &s_banner_glyphs[gi];
+        int ly = screen_y - g->y;
+        if (ly < 0 || ly >= g->h) continue;
+
+        const uint8_t *line = g->bmp + (size_t)ly * g->stride;
+        for (int col = 0; col < g->w; col++) {
+            int x = g->x + col;
+            if (x < x_start || x >= x_start + width) continue;
+            uint8_t a = line[col];
+            if (a == 0) continue;
+            uint16_t real = swap16(row[x - x_start]);
+            real = blend565(real, 0xFF, 0xFF, 0xFF, a);
+            row[x - x_start] = swap16(real);
+        }
+    }
+}
+
+void ui_animation_show_solid_banner(uint32_t bg_rgb24, const char *title)
+{
+    ui_animation_banner_prepare(title);
+
+    uint8_t  r = (bg_rgb24 >> 16) & 0xFF;
+    uint8_t  g = (bg_rgb24 >>  8) & 0xFF;
+    uint8_t  b = (bg_rgb24      ) & 0xFF;
+    uint16_t v = (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+    uint16_t base = swap16(v);
+
+    static uint16_t row[TFT_WIDTH];
+    for (int y = 0; y < TFT_HEIGHT; y++) {
+        for (int x = 0; x < TFT_WIDTH; x++) row[x] = base;
+        ui_animation_banner_apply_row(row, y, 0, TFT_WIDTH);
+        ui_animation_write_row(0, y, row, TFT_WIDTH);
+    }
+
+    ui_animation_banner_release();
 }

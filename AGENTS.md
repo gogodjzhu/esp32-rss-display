@@ -22,6 +22,10 @@ pio run --target clean           # 清理
 
 **SPIFFS 镜像**由 `build_spiffs.py` 作为 PlatformIO 预编译钩子自动生成，无需手动操作。源文件位于 `data/www/`，烧录偏移地址为 `0x210000`（与 `partitions.csv` 中 `storage` 分区一致）。
 
+**分区表：** `esp32s3` 环境使用 `partitions_s3.csv`（8MB），比共享的 `partitions.csv` 多一个 `font` data 分区（偏移 `0x290000`，2MB），用于存放中文子集字体 `assets/fonts/cjk_subset.ttf`；该文件由 `build_font.py` 预构建钩子作为独立 flash 镜像烧录。`esp32c3` 环境仍使用 `partitions.csv`。前四项分区偏移与共享表一致，升级不丢失 NVS/WiFi 凭证。
+
+**中文显示：** 运行期由 `lib/cjk_font` 用 `esp_partition_mmap` 零拷贝映射 `font` 分区里的子集 TTF，交给 LVGL 内置的 Tiny TTF（`src/lv_conf.h` 中 `LV_USE_TINY_TTF=1`，stb_truetype）按需光栅化。字体覆盖 GB2312 全部汉字 + 拉丁 + 常用标点，由 `tools/gen_cjk_font.py`（fonttools）从文泉驿微米黑（Apache-2.0）裁剪，约 1.4MB。重新生成见 `assets/fonts/README.md`。
+
 **入口：** `src/main.cpp` — `extern "C" void app_main()`。`lib/` 下所有库模块均为纯 C，带 `extern "C"` 守卫。
 
 **`sdkconfig.esp32s3`** 为自动生成文件，禁止手动编辑。`sdkconfig.defaults` 是已提交的配置基准。

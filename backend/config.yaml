@@ -14,7 +14,10 @@ rss:
 feeds:
   - name: HackerNews
     url: https://news.ycombinator.com/rss
-    enabled: false
+    enabled: true
   - name: BBC Business
     url: https://feeds.bbci.co.uk/news/business/rss.xml
+    enabled: true
+  - name: 少数派
+    url: https://plink.anyfeeder.com/ssapi/matrix
     enabled: true
