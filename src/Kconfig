@@ -23,21 +23,13 @@ config FIRMWARE_VERSION
     int "Firmware version"
     default 1
     help
-        Firmware version number. Changing this will trigger NVS clear on next boot.
+        固件发布版本，仅用于显示，不影响持久化配置。
 
-config RSS_URL
-    string "RSS feed URL"
-    default "http://192.168.3.107:1200/nytimes"
+config BACKEND_BASE_URL
+    string "Backend API base URL"
+    default "http://192.168.3.122:8080"
     help
-        URL of the RSS feed to fetch.
-
-config RSS_FETCH_INTERVAL_SEC
-    int "RSS fetch interval (seconds)"
-    default 300
-    range 30 86400
-    help
-        Interval in seconds between RSS feed fetches.
-
+        后端根地址，设备会自动生成内容与评分 API 路径。
 
 config DEVICE_ID
     string "Device ID"

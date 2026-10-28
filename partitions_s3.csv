@@ -1,8 +1,6 @@
 # Name,   Type, SubType, Offset,   Size,     Flags
-# ESP32-S3 专用分区表（8MB flash）。
-# 前四项与共享的 partitions.csv 完全一致，保证 NVS 偏移不变、升级不丢 WiFi 凭证；
-# 仅在末尾为中文子集字体新增一个 2MB 的 data 分区（运行期用 esp_partition_mmap 映射，
-# 不占用 RAM，也不膨胀 app 二进制）。
+# ESP32-S3 固定 8MB 分区布局，资源构建脚本按此表生成及烧录镜像。
+# 保持已有分区位置，保留设备配置与资源兼容性。
 nvs,      data, nvs,     ,         0x6000,
 phy_init, data, phy,     ,         0x1000,
 factory,  app,  factory, ,         2M,

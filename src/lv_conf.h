@@ -1,11 +1,10 @@
 /**
  * lv_conf.h - LVGL v9 最小配置
- * 支持 ESP32-S3 (512KB SRAM) 与 ESP32-C3 (400KB SRAM, 无 PSRAM)，
- * 分块渲染。
+ * 仅支持 ESP32-S3，采用分块渲染，不依赖 PSRAM。
  *
  * 中文支持：启用 LVGL 内置的 Tiny TTF（stb_truetype），运行时从独立的
  * font flash 分区（esp_partition_mmap 映射）按需光栅化子集字体，无需把
- * 字形数组链接进 app，也不额外占用 RAM。
+ * 字体文件链接进 app；运行期字形缓存仍占用 RAM。
  */
 
 #if 1 /* 必须为 1，否则整个文件被忽略 */
@@ -25,12 +24,7 @@
 #define LV_DEF_REFR_PERIOD  16
 
 /* 内存: 使用系统 malloc/free (ESP-IDF heap) */
-#define LV_MEM_CUSTOM 1
-#include <stdlib.h>
-#define LV_MEM_CUSTOM_INCLUDE <stdlib.h>
-#define LV_MEM_CUSTOM_ALLOC   malloc
-#define LV_MEM_CUSTOM_FREE    free
-#define LV_MEM_CUSTOM_REALLOC realloc
+#define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB
 
 /* 日志 */
 #define LV_USE_LOG 1
@@ -41,10 +35,7 @@
 #define LV_USE_ASSERT_NULL   1
 #define LV_USE_ASSERT_MALLOC 1
 
-/* HAL: 使用 esp_timer 驱动 tick */
-#define LV_TICK_CUSTOM 1
-#define LV_TICK_CUSTOM_INCLUDE  "esp_timer.h"
-#define LV_TICK_CUSTOM_SYS_TIME_EXPR ((uint32_t)(esp_timer_get_time() / 1000ULL))
+/* 时钟由 UI 初始化时通过 lv_tick_set_cb 设置 */
 
 /* Widget: 只保留实际使用的，其余显式关闭（LVGL 默认大多为 1） */
 #define LV_USE_ANIMIMG    0
@@ -95,7 +86,7 @@
 /* Tiny TTF：LVGL 内置 TTF 光栅化器（stb_truetype），用于中文等任意字形 */
 #define LV_USE_TINY_TTF 1
 #define LV_TINY_TTF_FILE_SUPPORT   0   /* 只从内存/flash 映射加载，无需文件系统 */
-#define LV_TINY_TTF_CACHE_GLYPH_CNT 128 /* 字形位图缓存条目数（约 128*24B 内存） */
+#define LV_TINY_TTF_CACHE_GLYPH_CNT 128 /* 位图本身的内存随字号与字形变化 */
 #define LV_TINY_TTF_CACHE_KERNING_CNT 32
 #define LV_USE_RLOTTIE  0
 

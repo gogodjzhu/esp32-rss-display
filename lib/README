@@ -1,46 +1,12 @@
+本目录保存项目的纯 C 固件模块，main.cpp 是唯一 C++ 入口。
 
-This directory is intended for project specific (private) libraries.
-PlatformIO will compile them to static libraries and link into the executable file.
+每个底层模块通过 CMakeLists.txt 注册为 ESP-IDF 组件，显式声明
+源文件、头文件路径和依赖。PlatformIO 的 lib_ldf_mode 已关闭，
+不得依赖自动扫描来引入库。
 
-The source code of each library should be placed in a separate directory
-("lib/your_library_name/[Code]").
+app_controller 和 http_server 在 src/CMakeLists.txt 中作为应用组件
+统一注册。历史 image_fetcher、rss_reader 仅作迁移参考，不参与构建。
 
-For example, see the structure of the following example libraries `Foo` and `Bar`:
-
-|--lib
-|  |
-|  |--Bar
-|  |  |--docs
-|  |  |--examples
-|  |  |--src
-|  |     |- Bar.c
-|  |     |- Bar.h
-|  |  |- library.json (optional. for custom build options, etc) https://docs.platformio.org/page/librarymanager/config.html
-|  |
-|  |--Foo
-|  |  |- Foo.c
-|  |  |- Foo.h
-|  |
-|  |- README --> THIS FILE
-|
-|- platformio.ini
-|--src
-   |- main.c
-
-Example contents of `src/main.c` using Foo and Bar:
-```
-#include <Foo.h>
-#include <Bar.h>
-
-int main (void)
-{
-  ...
-}
-
-```
-
-The PlatformIO Library Dependency Finder will find automatically dependent
-libraries by scanning project source files.
-
-More information about PlatformIO Library Dependency Finder
-- https://docs.platformio.org/page/librarymanager/ldf.html
+屏幕、LVGL、字体及标题缓存只允许应用/UI 任务访问。
+网络任务通过结果队列交接数据与 JPEG 缓冲，不直接访问显示。
+完整职责、配置契约和验证流程见 docs/firmware.md。

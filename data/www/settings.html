@@ -21,11 +21,14 @@
 <h1>RSS 新闻配置</h1>
 <div id="form-area">
 
-<label>Backend URL</label>
-<input type="text" id="backend_url" placeholder="http://192.168.x.x:8080/v1/device/test-device-001/next">
+<label>后端 API 根地址</label>
+<input type="url" id="api_base_url" maxlength="255" placeholder="http://192.168.x.x:8080">
+<label>设备标识</label>
+<input type="text" id="device_id" maxlength="63" placeholder="test-device-001">
+<div id="migration" class="help-text" style="display:none"></div>
 
 <div class="section-title">HTTP Headers</div>
-<div class="help-text">发送 HTTP 请求时附加的自定义 Header，如 Authorization、X-API-Key 等</div>
+<div class="help-text">仅附加到后端 API 请求，不用于图片下载；最多 8 项</div>
 <div id="headers-list"></div>
 <button class="btn-sm" onclick="addHeader()">+ 添加 Header</button>
 
@@ -74,9 +77,15 @@ function updateHdr(i, k, v) {
 
 window.onload = function() {
   fetch('/api/settings')
-    .then(function(r){ return r.json(); })
+    .then(function(r){ if (!r.ok) throw new Error('请求失败'); return r.json(); })
     .then(function(d){
-      document.getElementById('backend_url').value = d.backend_url || '';
+      document.getElementById('api_base_url').value = d.api_base_url || '';
+      document.getElementById('device_id').value = d.device_id || '';
+      if (d.migration_required) {
+        var hint = document.getElementById('migration');
+        hint.style.display = 'block';
+        hint.textContent = '请填写后端根地址。已保留的旧请求地址：' + d.legacy_next_url;
+      }
       if (d.headers && Array.isArray(d.headers)) {
         hdrs = d.headers.map(function(h){ return {k:h.k||'',v:h.v||''}; });
       }
@@ -86,11 +95,13 @@ window.onload = function() {
 };
 
 function saveSettings() {
-  var url = document.getElementById('backend_url').value.trim();
-  if (!url) { showErr('Backend URL 不能为空'); return; }
+  var url = document.getElementById('api_base_url').value.trim();
+  var device = document.getElementById('device_id').value.trim();
+  if (!url || !device) { showErr('后端根地址和设备标识不能为空'); return; }
 
   var body = JSON.stringify({
-    backend_url: url,
+    api_base_url: url,
+    device_id: device,
     headers: hdrs.filter(function(h){ return h.k.trim(); })
   });
 
@@ -99,7 +110,7 @@ function saveSettings() {
     headers: {'Content-Type': 'application/json'},
     body: body
   })
-  .then(function(r){ return r.json(); })
+  .then(function(r){ if (!r.ok) throw new Error('请求失败'); return r.json(); })
   .then(function(d){
     if (d.ok) {
       document.getElementById('form-area').style.display = 'none';

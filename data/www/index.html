@@ -12,11 +12,12 @@
 <h2>Configure your WiFi Network</h2>
 <form method="POST" action="/save">
 <label>SSID (WiFi Name)</label>
-<input type="text" name="ssid" required placeholder="Enter WiFi SSID">
+<input type="text" name="ssid" maxlength="32" required placeholder="Enter WiFi SSID">
 <label>Password</label>
-<input type="password" name="password" placeholder="Enter WiFi Password">
+<input type="password" name="password" maxlength="64" placeholder="Enter WiFi Password">
 <button type="submit">Save & Connect</button>
 </form>
+<a href="/settings">配置后端服务器</a>
 </div>
 </body>
 </html>

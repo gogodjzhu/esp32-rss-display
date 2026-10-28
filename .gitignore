@@ -6,8 +6,7 @@ venv
 .vscode/ipch
 sdkconfig.*
 !sdkconfig.defaults
-!sdkconfig.defaults.esp32c3
-!sdkconfig.defaults.esp32s3
+!test/host/stubs/sdkconfig.h
 node_modules
 package.json
 package-lock.json
@@ -15,3 +14,8 @@ package-lock.json
 # Go 后端构建产物与运行时数据（不入库）
 backend/bin/
 backend/data/
+
+# 主机测试和 Python 缓存
+.build/
+__pycache__/
+*.pyc

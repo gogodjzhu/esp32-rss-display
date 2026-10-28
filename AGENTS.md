@@ -4,14 +4,14 @@
 
 双组件项目：ESP32-S3 固件 + Go 后端服务器。
 
-- **固件** (`src/`, `lib/`)：PlatformIO + ESP-IDF，负责拉取 RSS 并提供 WiFi 配置门户。
+- **固件** (`src/`, `lib/`)：PlatformIO + ESP-IDF，从后端获取内容与 JPEG，并提供 WiFi/后端配置门户。
 - **后端** (`backend/`)：Go HTTP 服务器，聚合 RSS 订阅源，渲染 320×240 JPEG 图片并推送给设备。
 
 ---
 
 ## 固件（PlatformIO + ESP-IDF）
 
-**工具链：** PlatformIO，`framework = espidf`，板型 `esp32-s3-devkitc-1`，ESP-IDF 6.1.0。环境名为 `esp32s3`。
+**工具链：** PlatformIO Core 6.2.0，`espressif32 @ 6.13.0`，`framework = espidf`（ESP-IDF 5.5.3），板型 `esp32-s3-devkitc-1`，LVGL 9.6.0。唯一环境为 `esp32s3`，8MB flash，不依赖 PSRAM。
 
 ```sh
 pio run                          # 编译
@@ -20,9 +20,9 @@ pio device monitor               # 串口监视器（115200 波特率）
 pio run --target clean           # 清理
 ```
 
-**SPIFFS 镜像**由 `build_spiffs.py` 作为 PlatformIO 预编译钩子自动生成，无需手动操作。源文件位于 `data/www/`，烧录偏移地址为 `0x210000`（与 `partitions.csv` 中 `storage` 分区一致）。
+**资源镜像：** `build_spiffs.py` 从 `data/www/` 生成 SPIFFS；`build_font.py` 注册 `assets/fonts/cjk_subset.ttf`。两者经 `tools/firmware_assets.py` 使用 IDF 官方分区解析器获取大小和地址，并校验资源尺寸。普通 upload 会同时烧录资源。
 
-**分区表：** `esp32s3` 环境使用 `partitions_s3.csv`（8MB），比共享的 `partitions.csv` 多一个 `font` data 分区（偏移 `0x290000`，2MB），用于存放中文子集字体 `assets/fonts/cjk_subset.ttf`；该文件由 `build_font.py` 预构建钩子作为独立 flash 镜像烧录。`esp32c3` 环境仍使用 `partitions.csv`。前四项分区偏移与共享表一致，升级不丢失 NVS/WiFi 凭证。
+**分区表：** 唯一基准为 `partitions_s3.csv`（8MB）。`storage` 偏移 `0x210000`、大小 `0x80000`；`font` 偏移 `0x290000`、大小 `0x200000`。保留原有 NVS 和应用分区布局，修改固件版本不会清除用户凭证。
 
 **中文显示：** 运行期由 `lib/cjk_font` 用 `esp_partition_mmap` 零拷贝映射 `font` 分区里的子集 TTF，交给 LVGL 内置的 Tiny TTF（`src/lv_conf.h` 中 `LV_USE_TINY_TTF=1`，stb_truetype）按需光栅化。字体覆盖 GB2312 全部汉字 + 拉丁 + 常用标点，由 `tools/gen_cjk_font.py`（fonttools）从文泉驿微米黑（Apache-2.0）裁剪，约 1.4MB。重新生成见 `assets/fonts/README.md`。
 
@@ -30,13 +30,15 @@ pio run --target clean           # 清理
 
 **`sdkconfig.esp32s3`** 为自动生成文件，禁止手动编辑。`sdkconfig.defaults` 是已提交的配置基准。
 
-**根目录和 `src/` 下均有 CMakeLists.txt**，支持直接用 `idf.py` 构建，但推荐使用 PlatformIO 工作流。`src/CMakeLists.txt` 使用 `GLOB_RECURSE` 递归收集 `src/` 和 `lib/` 下的源文件。
+**构建边界：** `src/CMakeLists.txt` 显式注册入口、应用控制器和管理 API，`lib/*/CMakeLists.txt` 注册底层组件。关闭 PlatformIO LDF，避免重复编译；没有组件清单的历史 `image_fetcher`、`rss_reader` 不参与构建。LVGL 位于唯一环境的 `.pio/libdeps/esp32s3/lvgl`，并校验版本。正式支持 PlatformIO 工作流；原生 `idf.py` 的资源生成和烧录尚未验收。
+
+**运行所有权：** `app_controller` 是应用/UI 任务，独占 LVGL、字体、banner、解码及屏幕写入。`network_worker` 只返回数据，JPEG 缓冲通过结果队列移交，UI 渲染或丢弃后释放。所有请求携带 request ID；评分使用当前展示条目的显式 item ID。WiFi 操作由默认事件循环串行执行，对外只读快照。详见 `docs/firmware.md`。
 
 **注意：** `platformio.ini` 中的 `build_unflags = -fuse-cxa-atexit` 是 ESP-IDF 所需的 C++ ABI 兼容性配置，禁止删除。
 
-**TFT（ST7789）接线（ESP32-S3 分支，当前默认）：** MOSI=GPIO2、SCLK=GPIO1、CS=GPIO6、DC=GPIO5、RST=GPIO4；交互按键用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。引脚按芯片条件编译，定义见 `lib/ui_animation/ui_animation.c` 顶部（C3 分支另有布局）。
+**TFT（ST7789）接线：** MOSI=GPIO2、SCLK=GPIO1、CS=GPIO6、DC=GPIO5、RST=GPIO4；交互使用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。板级定义集中于 `lib/display_driver/board_config.h`。
 
-**配置**通过 Kconfig（`src/Kconfig`）管理。RSS URL 默认为 `http://192.168.3.107:1200/nytimes`（本地 RSSHub）。在 `sdkconfig.defaults` 中递增 `FIRMWARE_VERSION` 可在下次启动时触发 NVS 清除。当前值为 `CONFIG_FIRMWARE_VERSION=6`。
+**配置：** Kconfig (`src/Kconfig`) 提供默认后端根地址和设备 ID；`app_config` 集中校验、迁移和保存用户配置，以 `config_v1` 单个 NVS 值承载 schema 1。管理页面保存后重启生效，active/saved 快照分开。固件版本 `CONFIG_FIRMWARE_VERSION=6` 仅作发布标识。已有完整 next URL 可识别则迁移，其他合法旧地址保留并在设置页提示修正；无效的新结构配置保留原值并进入默认无凭证配网入口，显式保存后才覆盖。
 
 ---
 
@@ -73,7 +75,9 @@ go mod tidy                                         # 同步依赖
 
 ## 测试与 CI
 
-- `test/` 目录作为 PlatformIO 脚手架存在，但尚无测试实现。
-- 项目中没有 CI/CD 配置。
+- `CC=gcc python3 tools/run_host_tests.py --sanitize`：状态机、配置模型/迁移/保存失败、内容协议与传输故障测试；需要先安装固件依赖以提供同版 cJSON。
+- `python3 tools/check_firmware.py`：单目标约束、分区与构建资源检查。
+- `.github/workflows/firmware.yml`：仅构建 S3，运行主机测试与资源检查。
+- 板级和长时间测试步骤见 `docs/firmware.md`；主机测试不能替代硬件验收。
 
 ---

@@ -1,11 +1,11 @@
+固件主机测试位于 test/host/，由以下命令执行：
 
-This directory is intended for PlatformIO Test Runner and project tests.
+    CC=gcc python3 tools/run_host_tests.py --sanitize
 
-Unit Testing is a software testing method by which individual units of
-source code, sets of one or more MCU program modules together with associated
-control data, usage procedures, and operating procedures, are tested to
-determine whether they are fit for use. Unit testing finds problems early
-in the development cycle.
+首次执行前先运行 pio run，安装与固件同版的 ESP-IDF/cJSON。
+测试覆盖状态机计时与手势、配置和 URL 迁移、配置保存失败、
+内容协议、传输分片/截断/超限与后端请求契约。
 
-More information about PlatformIO Unit Testing:
-- https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+NVS、同步和 HTTP 客户端使用主机接口替身；不依赖真实设备。
+主机检查不能替代 TCP/TLS、WiFi 和显示硬件验收。
+板级及长时间测试步骤见 docs/firmware.md。

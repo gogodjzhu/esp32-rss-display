@@ -38,6 +38,7 @@ static int                         s_slot_count  = 0;
 
 esp_err_t cjk_font_init(void)
 {
+    if (s_slot_count) return ESP_OK;
     const esp_partition_t *part = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)FONT_PART_SUBTYPE, FONT_PART_LABEL);
 
@@ -59,8 +60,13 @@ esp_err_t cjk_font_init(void)
     s_font_size = part->size;
     ESP_LOGI(TAG, "中文字体分区已映射: %u bytes @ %p", (unsigned)part->size, ptr);
 
-    /* 预创建默认字号，尽早暴露问题 */
-    if (cjk_font_get(CJK_FONT_DEFAULT_SIZE) == NULL) {
+    /* 空白或错误资源不能交给字体解析器 */
+    const uint8_t *signature = ptr;
+    if ((memcmp(signature, "\x00\x01\x00\x00", 4) != 0 && memcmp(signature, "OTTO", 4) != 0)
+        || cjk_font_get(CJK_FONT_DEFAULT_SIZE) == NULL) {
+        esp_partition_munmap(s_mmap_handle);
+        s_font_data = NULL;
+        s_font_size = 0;
         return ESP_FAIL;
     }
     return ESP_OK;

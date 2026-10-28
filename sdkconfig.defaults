@@ -1,46 +1,34 @@
-# ESP-IDF sdkconfig defaults
-# These settings override the default ESP-IDF configuration
-
-# WiFi AP Configuration
+# 唯一目标 ESP32-S3 的配置基准
+CONFIG_IDF_TARGET="esp32s3"
 CONFIG_WIFI_AP_SSID="ESP32-Config"
 CONFIG_WIFI_AP_PASSWORD="12345678"
 CONFIG_WIFI_CONNECT_TIMEOUT_SEC=60
 CONFIG_FIRMWARE_VERSION=6
 
-# Enable WiFi
+# 网络缓冲与调试配置
 CONFIG_ESP_WIFI_ENABLED=y
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
-
-# Optimize for debug build
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
-
-# Log level (0=None, 1=Error, 2=Warn, 3=Info, 4=Debug, 5=Verbose)
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
-# 主任务栈：app_main 在 AP 配网模式下会直接循环驱动 LVGL 渲染
-# （main.cpp 中 ui_animation_task() + lv_timer_handler）。
-# IDF 默认 3584 字节不足以完成 LVGL 9.6 软件圆角抗锯齿绘制，实测会触发
-# "stack overflow in task main" 并反复重启，故提到与 image_display_task 一致的 8KB。
-# （esp32s3 环境的 CONFIG_ESP_MAIN_TASK_STACK_SIZE 在 sdkconfig.defaults.esp32s3 中
-#   定义，两个芯片共用此配置）
+# LVGL 软件渲染需要足够的主任务栈
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 
-# Custom partition table
+# 8MB flash，分区布局与资源烧录共用同一份表
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_s3.csv"
 
-# Flash 容量按芯片差异拆分到 sdkconfig.defaults.esp32c3 / sdkconfig.defaults.esp32s3
-#（C3=4MB，S3=8MB），必须与 platformio.ini 中各 env 的 board_upload.flash_size 一致。
-
-# SPIFFS filesystem
+# 配网页面文件系统
 CONFIG_SPIFFS_MAX_PARTITIONS=3
 CONFIG_SPIFFS_CACHE=y
 CONFIG_SPIFFS_PAGE_SIZE=256
 CONFIG_SPIFFS_OBJ_NAME_LEN=32
 CONFIG_SPIFFS_USE_MAGIC=y
 CONFIG_SPIFFS_USE_MTIME=y
-
-# CPU frequency
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+
+# HTTPS 证书校验
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y

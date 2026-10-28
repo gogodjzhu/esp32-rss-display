@@ -1,0 +1,31 @@
+name: Firmware
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  esp32s3:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装 PlatformIO
+        run: pip install platformio==6.2.0
+      - name: 构建默认固件目标
+        run: pio run
+      - name: 主机逻辑与故障测试
+        run: CC=gcc python3 tools/run_host_tests.py --sanitize
+      - name: 校验目标、分区与资源
+        run: python3 tools/check_firmware.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esp32s3-firmware
+          path: |
+            .pio/build/esp32s3/firmware.bin
+            .pio/build/esp32s3/partitions.bin
+            .pio/build/esp32s3/bootloader.bin
+            .pio/build/esp32s3/storage.bin
+            assets/fonts/cjk_subset.ttf

@@ -1,605 +1,286 @@
-/**
- * @file http_server.c
- * @brief HTTP Server 实现 - 配网页面和管理页面 (SPIFFS静态文件)
- */
-
-#include <string.h>
-#include <stdlib.h>
-#include <sys/param.h>
+#include "http_server.h"
+#include "app_config.h"
+#include "app_controller.h"
+#include "button_input.h"
+#include "network_worker.h"
+#include "wifi_manager.h"
+#include <cJSON.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
-#include <esp_http_server.h>
-#include <esp_ota_ops.h>
+#include <esp_spiffs.h>
 #include <esp_system.h>
 #include <esp_timer.h>
-#include <esp_spiffs.h>
-#include "http_server.h"
-#include "wifi_manager.h"
-#include "rss_reader.h"
-#include "nvs_manager.h"
-#include "image_fetcher.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-static const char *TAG = "HTTP_SERVER";
+static httpd_handle_t s_server;
+static bool s_mounted;
+static const char *TAG = "HTTP";
 
-#define SPIFFS_BASE_PATH "/www"
-#define SPIFFS_PARTITION_LABEL "storage"
-
-static void url_decode(char *str)
+static esp_err_t send_json(httpd_req_t *req, cJSON *root)
 {
-    char *src = str, *dst = str;
-    while (*src) {
-        if (*src == '%' && src[1] && src[2]) {
-            char hex[3] = {src[1], src[2], 0};
-            *dst++ = (char)strtol(hex, NULL, 16);
-            src += 3;
-        } else if (*src == '+') {
-            *dst++ = ' ';
-            src++;
-        } else {
-            *dst++ = *src++;
-        }
-    }
-    *dst = '\0';
-}
-
-static const char *get_content_type(const char *filename)
-{
-    const char *ext = strrchr(filename, '.');
-    if (!ext) return "application/octet-stream";
-    if (strcmp(ext, ".html") == 0) return "text/html; charset=UTF-8";
-    if (strcmp(ext, ".css") == 0) return "text/css";
-    if (strcmp(ext, ".js") == 0) return "application/javascript";
-    if (strcmp(ext, ".json") == 0) return "application/json";
-    if (strcmp(ext, ".png") == 0) return "image/png";
-    if (strcmp(ext, ".ico") == 0) return "image/x-icon";
-    return "application/octet-stream";
-}
-
-static esp_err_t serve_static_file(httpd_req_t *req, const char *filename)
-{
-    char filepath[64];
-    snprintf(filepath, sizeof(filepath), SPIFFS_BASE_PATH "/%s", filename);
-
-    FILE *f = fopen(filepath, "r");
-    if (!f) {
-        ESP_LOGW(TAG, "File not found: %s", filepath);
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    char *buf = malloc(fsize);
-    if (!buf) {
-        ESP_LOGE(TAG, "Failed to allocate %ld bytes for %s", fsize, filename);
-        fclose(f);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
-
-    fread(buf, 1, fsize, f);
-    fclose(f);
-
-    httpd_resp_set_type(req, get_content_type(filename));
-    httpd_resp_send(req, buf, fsize);
-    free(buf);
-    return ESP_OK;
-}
-
-/**
- * @brief 根路径处理器 - 根据当前WiFi模式返回对应页面
- *
- * URI: /
- * 方法: GET
- */
-static esp_err_t root_get_handler(httpd_req_t *req)
-{
-    wifi_info_t *info = wifi_manager_get_info();
-
-    if (info->mode == MODE_AP) {
-        ESP_LOGI(TAG, "GET / -> serving index.html (AP mode)");
-        return serve_static_file(req, "index.html");
-    } else {
-        ESP_LOGI(TAG, "GET / -> serving status.html (STA mode)");
-        return serve_static_file(req, "status.html");
-    }
-}
-
-/**
- * @brief 配置页面处理器 - 强制显示WiFi配置页面
- *
- * URI: /config
- * 方法: GET
- */
-static esp_err_t config_get_handler(httpd_req_t *req)
-{
-    ESP_LOGI(TAG, "GET /config -> serving index.html");
-    return serve_static_file(req, "index.html");
-}
-
-/**
- * @brief 保存WiFi凭证处理器 - 处理POST请求，保存凭证并重启
- *
- * URI: /save
- * 方法: POST
- */
-static esp_err_t save_post_handler(httpd_req_t *req)
-{
-    ESP_LOGI(TAG, "POST /save -> received WiFi config submission");
-    char content[512];
-    char ssid[32] = {0};
-    char password[64] = {0};
-
-    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
-    if (ret <= 0) {
-        ESP_LOGE(TAG, "POST /save -> failed to receive POST data (ret=%d)", ret);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
-    }
-    content[ret] = '\0';
-    ESP_LOGI(TAG, "POST /save -> raw form data: %s", content);
-
-    char *ptr = content;
-    while (*ptr) {
-        while (*ptr == '&') ptr++;
-        if (strncmp(ptr, "ssid=", 5) == 0) {
-            ptr += 5;
-            char *end = strchr(ptr, '&');
-            if (end) *end = '\0';
-            strncpy(ssid, ptr, sizeof(ssid) - 1);
-            url_decode(ssid);
-            if (end) ptr = end + 1;
-            else break;
-        } else if (strncmp(ptr, "password=", 9) == 0) {
-            ptr += 9;
-            char *end = strchr(ptr, '&');
-            if (end) *end = '\0';
-            strncpy(password, ptr, sizeof(password) - 1);
-            url_decode(password);
-            break;
-        } else {
-            ptr++;
-        }
-    }
-
-    if (strlen(ssid) == 0) {
-        ESP_LOGE(TAG, "POST /save -> empty SSID, rejecting");
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID is required");
-        return ESP_FAIL;
-    }
-
-    ESP_LOGI(TAG, "POST /save -> parsed: ssid=%s, password=%s", ssid, password);
-    ESP_LOGI(TAG, "Saving WiFi credentials and rebooting to STA mode...");
-    wifi_manager_save_credentials(ssid, password);
-
-    serve_static_file(req, "success.html");
-
-    // 延迟2秒后重启, 让浏览器有时间显示成功页面
-    ESP_LOGI(TAG, "Rebooting to STA mode...");
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    esp_restart();
-
-    return ESP_OK;
-}
-
-/**
- * @brief 状态API处理器 - 返回JSON格式的设备状态
- *
- * URI: /api/status
- * 方法: GET
- */
-static esp_err_t status_get_handler(httpd_req_t *req)
-{
-    wifi_info_t *info = wifi_manager_get_info();
-
-    char json[256];
-    int len = snprintf(json, sizeof(json),
-        "{\"status\":%d,\"mode\":%d,\"ip\":\"%s\",\"ssid\":\"%s\",\"ap_ssid\":\"%s\","
-        "\"heap\":%u,\"uptime\":%u}",
-        info->status,
-        info->mode,
-        info->ip,
-        info->ssid,
-        info->ap_ssid,
-        (unsigned int)esp_get_free_heap_size(),
-        (unsigned int)(esp_timer_get_time() / 1000000)
-    );
-
+    char *json = root ? cJSON_PrintUnformatted(root) : NULL;
+    cJSON_Delete(root);
+    if (!json) return httpd_resp_send_500(req);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, len);
-    return ESP_OK;
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    esp_err_t err = httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return err;
 }
 
-/**
- * @brief 重连WiFi处理器 - 触发WiFi重新连接
- *
- * URI: /reconnect
- * 方法: GET
- */
-static esp_err_t reconnect_get_handler(httpd_req_t *req)
+static esp_err_t receive_body(httpd_req_t *req, char *out, size_t size)
 {
-    ESP_LOGI(TAG, "GET /reconnect -> triggering WiFi reconnect");
-    serve_static_file(req, "reconnect.html");
-    wifi_manager_reconnect();
-    return ESP_OK;
-}
-
-/**
- * @brief 重置处理器 - 清除WiFi凭证并重启进入AP模式
- *
- * URI: /reset
- * 方法: GET
- */
-static esp_err_t reset_get_handler(httpd_req_t *req)
-{
-    ESP_LOGW(TAG, "GET /reset -> clearing credentials and rebooting to AP mode");
-    serve_static_file(req, "reset.html");
-
-    wifi_manager_clear_credentials();
-
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    ESP_LOGI(TAG, "Rebooting now...");
-    esp_restart();
-
-    return ESP_OK;
-}
-
-/**
- * @brief RSS条目HTML页面处理器 - 动态生成HTML并引用SPIFFS中的CSS
- *
- * URI: /api/rss
- * 方法: GET
- */
-static esp_err_t rss_item_get_handler(httpd_req_t *req)
-{
-    rss_cached_item_t *item = rss_reader_get_cached_item();
-
-    char html[2048];
-    int len;
-
-    if (item->valid) {
-        len = snprintf(html, sizeof(html),
-            "<!DOCTYPE html>"
-            "<html><head>"
-            "<meta charset=\"UTF-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<title>RSS Item</title>"
-            "<link rel=\"stylesheet\" href=\"/styles.css\">"
-            "</head><body>"
-            "<div class=\"card\">"
-            "<h1>RSS Item</h1>"
-            "<p class=\"meta\">Random from cache</p>"
-            "<h2>Title</h2>"
-            "<p>%s</p>"
-            "<h2>Link</h2>"
-            "<div class=\"link-box\"><a href=\"%s\" target=\"_blank\">%s</a></div>"
-            "<h2>PubDate</h2>"
-            "<p>%s</p>"
-            "<a class=\"btn\" href=\"/api/rss\" onclick=\"location.reload();return false;\">Refresh</a>"
-            "<div class=\"back\">"
-            "<a href=\"/\">&larr; Back to Home</a>"
-            "</div>"
-            "</div>"
-            "</body></html>",
-            item->title, item->link, item->link, item->pubDate);
-    } else {
-        len = snprintf(html, sizeof(html),
-            "<!DOCTYPE html>"
-            "<html><head>"
-            "<meta charset=\"UTF-8\">"
-            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-            "<title>RSS Item</title>"
-            "<link rel=\"stylesheet\" href=\"/styles.css\">"
-            "</head><body>"
-            "<div class=\"card\">"
-            "<h1>RSS Item</h1>"
-            "<div class=\"no-data\">"
-            "<p>No RSS item available yet.</p>"
-            "<p>Please wait for the RSS reader to fetch data.</p>"
-            "</div>"
-            "<a class=\"btn\" href=\"/api/rss\">Refresh</a>"
-            "<div class=\"back\">"
-            "<a href=\"/\">&larr; Back to Home</a>"
-            "</div>"
-            "</div>"
-            "</body></html>");
+    if (!req->content_len || req->content_len >= size) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid body size");
+        return ESP_ERR_INVALID_SIZE;
     }
-
-    httpd_resp_set_type(req, "text/html; charset=UTF-8");
-    httpd_resp_send(req, html, len);
+    size_t total = 0;
+    while (total < req->content_len) {
+        int count = httpd_req_recv(req, out + total, req->content_len - total);
+        if (count <= 0) {
+            httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "incomplete body");
+            return ESP_FAIL;
+        }
+        total += count;
+    }
+    /* 表单和 JSON 都不允许内嵌 NUL */
+    if (memchr(out, 0, total)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid body");
+        return ESP_ERR_INVALID_ARG;
+    }
+    out[total] = '\0';
     return ESP_OK;
 }
 
-/**
- * @brief 静态文件捕获处理器 - 服务SPIFFS中的任意静态文件
- *
- * URI: wildcard catch-all
- * 方法: GET
- */
-static esp_err_t static_file_handler(httpd_req_t *req)
+static esp_err_t serve_file(httpd_req_t *req, const char *name)
 {
-    ESP_LOGI(TAG, "GET %s -> serving static file", req->uri);
-    // URI starts with '/', skip it for filename lookup
-    const char *filename = req->uri + 1;
-    if (*filename == '\0') {
-        filename = "index.html";
+    /* 页面文件只在固定资源目录内，禁止路径穿越 */
+    if (strchr(name, '/') || strstr(name, "..")) return httpd_resp_send_404(req);
+    char path[96];
+    if (snprintf(path, sizeof(path), "/www/%s", name) >= sizeof(path)) return httpd_resp_send_404(req);
+    FILE *file = fopen(path, "rb");
+    if (!file) return httpd_resp_send_404(req);
+    const char *ext = strrchr(name, '.');
+    httpd_resp_set_type(req, ext && strcmp(ext, ".js") == 0 ? "application/javascript"
+        : ext && strcmp(ext, ".css") == 0 ? "text/css" : "text/html; charset=UTF-8");
+    char buffer[768];
+    size_t size;
+    esp_err_t err = ESP_OK;
+    while ((size = fread(buffer, 1, sizeof(buffer), file)) != 0) {
+        err = httpd_resp_send_chunk(req, buffer, size);
+        if (err != ESP_OK) break;
     }
-    return serve_static_file(req, filename);
+    if (ferror(file)) err = ESP_FAIL;
+    fclose(file);
+    return err == ESP_OK ? httpd_resp_send_chunk(req, NULL, 0) : err;
 }
 
-/**
- * @brief 设置页面处理器 - 返回 settings.html
- *
- * URI: /settings
- * 方法: GET
- */
+static esp_err_t root_handler(httpd_req_t *req)
+{
+    wifi_info_t wifi;
+    wifi_manager_get_snapshot(&wifi);
+    return serve_file(req, wifi.mode == MODE_AP ? "index.html" : "status.html");
+}
+
+static esp_err_t page_handler(httpd_req_t *req)
+{
+    return serve_file(req, req->user_ctx);
+}
+
+static esp_err_t static_handler(httpd_req_t *req)
+{
+    char name[64];
+    size_t size = strcspn(req->uri + 1, "?");
+    if (!size || size >= sizeof(name)) return httpd_resp_send_404(req);
+    memcpy(name, req->uri + 1, size);
+    name[size] = '\0';
+    return serve_file(req, name);
+}
+
+static int hex_value(char value)
+{
+    if (value >= '0' && value <= '9') return value - '0';
+    if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+    return -1;
+}
+
+static bool decode_form(const char *value, char *out, size_t size)
+{
+    size_t position = 0;
+    while (*value) {
+        unsigned char ch = *value++;
+        if (ch == '%') {
+            if (!value[0] || !value[1]) return false;
+            int high = hex_value(value[0]), low = hex_value(value[1]);
+            if (high < 0 || low < 0) return false;
+            ch = high * 16 + low;
+            value += 2;
+        } else if (ch == '+') ch = ' ';
+        if (!ch || position + 1 >= size) return false;
+        out[position++] = ch;
+    }
+    out[position] = '\0';
+    return true;
+}
+
+static esp_err_t save_wifi_handler(httpd_req_t *req)
+{
+    char body[512], ssid[33] = "", password[65] = "";
+    if (receive_body(req, body, sizeof(body)) != ESP_OK) return ESP_FAIL;
+    char *context, *part = strtok_r(body, "&", &context);
+    bool valid = true;
+    while (part) {
+        char *equals = strchr(part, '=');
+        if (!equals) { valid = false; break; }
+        *equals++ = '\0';
+        if (strcmp(part, "ssid") == 0) valid = decode_form(equals, ssid, sizeof(ssid));
+        else if (strcmp(part, "password") == 0) valid = decode_form(equals, password, sizeof(password));
+        if (!valid) break;
+        part = strtok_r(NULL, "&", &context);
+    }
+    if (!valid || !ssid[0]) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid WiFi credentials");
+    esp_err_t err = app_config_save_wifi(ssid, password);
+    if (err != ESP_OK) return httpd_resp_send_err(req,
+        err == ESP_ERR_INVALID_ARG ? HTTPD_400_BAD_REQUEST : HTTPD_500_INTERNAL_SERVER_ERROR, "WiFi config not saved");
+    err = serve_file(req, "success.html");
+    if (err == ESP_OK) app_controller_request_restart(2000);
+    return err;
+}
+
+static esp_err_t status_handler(httpd_req_t *req)
+{
+    wifi_info_t wifi;
+    app_snapshot_t app;
+    wifi_manager_get_snapshot(&wifi);
+    app_controller_get_snapshot(&app);
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return httpd_resp_send_500(req);
+    cJSON_AddNumberToObject(root, "status", wifi.status);
+    cJSON_AddNumberToObject(root, "mode", wifi.mode);
+    cJSON_AddStringToObject(root, "ip", wifi.ip);
+    cJSON_AddStringToObject(root, "ssid", wifi.ssid);
+    cJSON_AddStringToObject(root, "ap_ssid", wifi.ap_ssid);
+    cJSON_AddNumberToObject(root, "disconnect_reason", wifi.disconnect_reason);
+    cJSON_AddNumberToObject(root, "retry_count", wifi.retry_count);
+    cJSON_AddNumberToObject(root, "heap", esp_get_free_heap_size());
+    cJSON_AddNumberToObject(root, "min_heap", esp_get_minimum_free_heap_size());
+    cJSON_AddNumberToObject(root, "largest_free_block", heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    cJSON_AddNumberToObject(root, "uptime", esp_timer_get_time() / 1000000);
+    cJSON_AddNumberToObject(root, "view", app.view);
+    cJSON_AddBoolToObject(root, "network_busy", app.network_busy);
+    cJSON_AddNumberToObject(root, "item_id", app.item.id);
+    cJSON_AddStringToObject(root, "title", app.item.title);
+    cJSON_AddStringToObject(root, "published_at", app.item.published_at);
+    cJSON_AddNumberToObject(root, "content_outcome", app.outcome);
+    cJSON_AddStringToObject(root, "last_error", esp_err_to_name(app.last_error));
+    cJSON_AddNumberToObject(root, "last_http_status", app.last_http_status);
+    cJSON_AddNumberToObject(root, "failures", app.failures);
+    cJSON_AddNumberToObject(root, "last_success_ms", app.last_success_ms);
+    cJSON_AddNumberToObject(root, "ui_stack_free", app.ui_stack_free);
+    cJSON_AddNumberToObject(root, "network_stack_free", network_worker_stack_free());
+    cJSON_AddNumberToObject(root, "button_events_dropped", button_input_dropped());
+    return send_json(req, root);
+}
+
 static esp_err_t settings_get_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "GET /settings -> serving settings.html");
-    return serve_static_file(req, "settings.html");
-}
-
-/**
- * @brief 设置 API 读取处理器 - 返回当前 backend_url（JSON）
- *
- * URI: /api/settings
- * 方法: GET
- */
-static esp_err_t api_settings_get_handler(httpd_req_t *req)
-{
-    char url[128];
-    strncpy(url, image_fetcher_get_backend_url(), sizeof(url) - 1);
-    url[sizeof(url) - 1] = '\0';
-
-    size_t len = sizeof(url);
-    nvs_manager_get_str("backend_url", url, &len);
-
-    /* 从 NVS 读取 headers JSON */
-    char headers[512] = "[]";
-    size_t hdr_len = sizeof(headers);
-    nvs_manager_get_str("http_headers", headers, &hdr_len);
-
-    char json[768];
-    int n = snprintf(json, sizeof(json),
-        "{\"backend_url\":\"%s\",\"headers\":%s}", url, headers);
+    app_config_t config;
+    app_config_get_saved(&config);
+    char *json = config_model_json(&config, false);
+    if (!json) return httpd_resp_send_500(req);
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, json, n);
-    return ESP_OK;
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    esp_err_t err = httpd_resp_send(req, json, HTTPD_RESP_USE_STRLEN);
+    free(json);
+    return err;
 }
 
-/**
- * @brief 设置 API 保存处理器 - 解析 JSON body，保存 backend_url 到 NVS，延迟重启
- *
- * URI: /api/settings
- * 方法: POST
- */
-static esp_err_t api_settings_post_handler(httpd_req_t *req)
+static esp_err_t settings_post_handler(httpd_req_t *req)
 {
-    ESP_LOGI(TAG, "POST /api/settings -> handler called");
-
-    char body[512] = {0};
-    int ret = httpd_req_recv(req, body, sizeof(body) - 1);
-    if (ret <= 0) {
-        ESP_LOGE(TAG, "POST /api/settings -> 接收 body 失败 (ret=%d)", ret);
-        httpd_resp_send_500(req);
-        return ESP_FAIL;
+    char body[1536];
+    if (receive_body(req, body, sizeof(body)) != ESP_OK) return ESP_FAIL;
+    cJSON *root = cJSON_ParseWithOpts(body, NULL, true);
+    const cJSON *base = cJSON_GetObjectItemCaseSensitive(root, "api_base_url");
+    const cJSON *device = cJSON_GetObjectItemCaseSensitive(root, "device_id");
+    const cJSON *headers = cJSON_GetObjectItemCaseSensitive(root, "headers");
+    char *json = cJSON_IsArray(headers) ? cJSON_PrintUnformatted(headers) : NULL;
+    app_config_t config;
+    app_config_get_saved(&config);
+    bool valid = cJSON_IsObject(root) && cJSON_IsString(base) && cJSON_IsString(device) && json
+        && strlen(base->valuestring) < sizeof(config.api_base_url)
+        && strlen(device->valuestring) < sizeof(config.device_id) && strlen(json) < sizeof(config.http_headers);
+    if (valid) {
+        strcpy(config.api_base_url, base->valuestring);
+        strcpy(config.device_id, device->valuestring);
+        strcpy(config.http_headers, json);
+        config.legacy_next_url[0] = '\0';
+        valid = config_model_validate(&config);
     }
-    body[ret] = '\0';
-    ESP_LOGI(TAG, "POST /api/settings -> body: %s", body);
-
-    /* 从 JSON body 中提取 backend_url 值（简单 strstr，无需第三方库） */
-    char url[128] = {0};
-    const char *url_key = "\"backend_url\":\"";
-    char *p = strstr(body, url_key);
-    if (!p) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "missing backend_url");
-        return ESP_FAIL;
-    }
-    p += strlen(url_key);
-    char *end = strchr(p, '"');
-    if (!end) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "malformed json");
-        return ESP_FAIL;
-    }
-    size_t url_len = (size_t)(end - p);
-    if (url_len == 0 || url_len >= sizeof(url)) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid url length");
-        return ESP_FAIL;
-    }
-    strncpy(url, p, url_len);
-    url[url_len] = '\0';
-
-    nvs_manager_set_str("backend_url", url);
-    ESP_LOGI(TAG, "POST /api/settings -> 保存 backend_url: %s", url);
-
-    /* 解析并保存 HTTP headers */
-    const char *hdr_key = "\"headers\":[";
-    char *hdr_start = strstr(body, hdr_key);
-    if (hdr_start) {
-        hdr_start += strlen(hdr_key) - 1; /* 指向 '[' */
-        /* 匹配括号深度找到数组结束的 ']' */
-        int depth = 0;
-        char *hdr_end = hdr_start;
-        for (; *hdr_end != '\0'; hdr_end++) {
-            if (*hdr_end == '[') depth++;
-            else if (*hdr_end == ']') {
-                depth--;
-                if (depth == 0) break;
-            }
-        }
-        size_t hdr_len = (size_t)(hdr_end - hdr_start) + 1;
-        if (hdr_len > 1 && hdr_len < 512) {
-            char headers_buf[512];
-            memcpy(headers_buf, hdr_start, hdr_len);
-            headers_buf[hdr_len] = '\0';
-            nvs_manager_set_str("http_headers", headers_buf);
-            ESP_LOGI(TAG, "POST /api/settings -> 保存 http_headers: %s", headers_buf);
-        } else {
-            ESP_LOGI(TAG, "POST /api/settings -> headers 数组为空或过长，清除 NVS");
-            nvs_manager_erase("http_headers");
-        }
-    } else {
-        /* 没有 headers 字段，清除已有的 headers 配置 */
-        ESP_LOGI(TAG, "POST /api/settings -> 未包含 headers，清除 NVS");
-        nvs_manager_erase("http_headers");
-    }
-
-    ESP_LOGI(TAG, "配置已保存，2秒后重启");
-
+    free(json);
+    cJSON_Delete(root);
+    if (!valid) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "invalid API config");
+    esp_err_t err = app_config_save(&config);
+    if (err != ESP_OK) return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "config not saved");
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, "{\"ok\":true}", -1);
-
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    esp_restart();
-    return ESP_OK;
+    err = httpd_resp_send(req, "{\"ok\":true,\"restart_required\":true}", HTTPD_RESP_USE_STRLEN);
+    if (err == ESP_OK) app_controller_request_restart(2000);
+    return err;
 }
 
-// URI路由定义 - 具体路由在前, 通配fallback在最后
-static const httpd_uri_t root_uri = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = root_get_handler,
-};
-
-static const httpd_uri_t config_uri = {
-    .uri = "/config",
-    .method = HTTP_GET,
-    .handler = config_get_handler,
-};
-
-static const httpd_uri_t save_uri = {
-    .uri = "/save",
-    .method = HTTP_POST,
-    .handler = save_post_handler,
-};
-
-static const httpd_uri_t status_uri = {
-    .uri = "/api/status",
-    .method = HTTP_GET,
-    .handler = status_get_handler,
-};
-
-static const httpd_uri_t reconnect_uri = {
-    .uri = "/reconnect",
-    .method = HTTP_GET,
-    .handler = reconnect_get_handler,
-};
-
-static const httpd_uri_t reset_uri = {
-    .uri = "/reset",
-    .method = HTTP_GET,
-    .handler = reset_get_handler,
-};
-
-static const httpd_uri_t rss_item_uri = {
-    .uri = "/api/rss",
-    .method = HTTP_GET,
-    .handler = rss_item_get_handler,
-};
-
-static const httpd_uri_t settings_uri = {
-    .uri = "/settings",
-    .method = HTTP_GET,
-    .handler = settings_get_handler,
-};
-
-static const httpd_uri_t api_settings_get_uri = {
-    .uri = "/api/settings",
-    .method = HTTP_GET,
-    .handler = api_settings_get_handler,
-};
-
-static const httpd_uri_t api_settings_post_uri = {
-    .uri = "/api/settings",
-    .method = HTTP_POST,
-    .handler = api_settings_post_handler,
-};
-
-static const httpd_uri_t static_file_uri = {
-    .uri = "/*",
-    .method = HTTP_GET,
-    .handler = static_file_handler,
-};
-
-/**
- * @brief 挂载SPIFFS分区
- *
- * @return esp_err_t ESP_OK on success
- */
-static esp_err_t spiffs_mount_storage(void)
+static esp_err_t reconnect_handler(httpd_req_t *req)
 {
-    esp_vfs_spiffs_conf_t conf = {
-        .base_path = SPIFFS_BASE_PATH,
-        .partition_label = SPIFFS_PARTITION_LABEL,
-        .max_files = 5,
-        .format_if_mount_failed = false,
-    };
-
-    esp_err_t ret = esp_vfs_spiffs_register(&conf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to mount SPIFFS partition '%s' (%s)",
-                 SPIFFS_PARTITION_LABEL, esp_err_to_name(ret));
-        return ret;
-    }
-
-    size_t total = 0, used = 0;
-    ret = esp_spiffs_info(conf.partition_label, &total, &used);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "SPIFFS mounted at %s: %d/%d KB used",
-                 SPIFFS_BASE_PATH, (int)(used / 1024), (int)(total / 1024));
-    }
-
-    return ESP_OK;
+    if (wifi_manager_reconnect() != ESP_OK) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "reconnect unavailable");
+    return serve_file(req, "reconnect.html");
 }
 
-/**
- * @brief 启动HTTP服务器
- *
- * 挂载SPIFFS, 注册所有URI处理器，监听80端口
- * @return HTTP服务器句柄，启动失败返回NULL
- */
+static esp_err_t reset_handler(httpd_req_t *req)
+{
+    if (app_config_clear_wifi() != ESP_OK) return httpd_resp_send_500(req);
+    esp_err_t err = serve_file(req, "reset.html");
+    if (err == ESP_OK) app_controller_request_restart(1000);
+    return err;
+}
+
 httpd_handle_t http_server_start(void)
 {
-    spiffs_mount_storage();
-
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = 80;
-    config.max_uri_handlers = 12;
-    config.uri_match_fn = httpd_uri_match_wildcard;
-    httpd_handle_t server = NULL;
-
-    ESP_LOGI(TAG, "Starting HTTP server on port: %d", config.server_port);
-
-    if (httpd_start(&server, &config) == ESP_OK) {
-        ESP_LOGI(TAG, "Registering URI handlers: /, /config, /save, /api/status, /api/rss, /settings, /api/settings, /reconnect, /reset, /*");
-        httpd_register_uri_handler(server, &root_uri);
-        httpd_register_uri_handler(server, &config_uri);
-        httpd_register_uri_handler(server, &save_uri);
-        httpd_register_uri_handler(server, &status_uri);
-        httpd_register_uri_handler(server, &reconnect_uri);
-        httpd_register_uri_handler(server, &reset_uri);
-        httpd_register_uri_handler(server, &rss_item_uri);
-        httpd_register_uri_handler(server, &settings_uri);
-        httpd_register_uri_handler(server, &api_settings_get_uri);
-        httpd_register_uri_handler(server, &api_settings_post_uri);
-        httpd_register_uri_handler(server, &static_file_uri);
-        ESP_LOGI(TAG, "HTTP server started successfully");
-    } else {
-        ESP_LOGE(TAG, "Failed to start HTTP server");
+    if (s_server) return s_server;
+    if (!s_mounted) {
+        esp_vfs_spiffs_conf_t fs = {.base_path = "/www", .partition_label = "storage", .max_files = 3, .format_if_mount_failed = false};
+        esp_err_t err = esp_vfs_spiffs_register(&fs);
+        if (err != ESP_OK) { ESP_LOGE(TAG, "资源分区挂载失败: %s", esp_err_to_name(err)); return NULL; }
+        s_mounted = true;
     }
-
-    return server;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_uri_handlers = 12;
+    config.stack_size = 8192;
+    config.uri_match_fn = httpd_uri_match_wildcard;
+    if (httpd_start(&s_server, &config) != ESP_OK) return NULL;
+    const httpd_uri_t routes[] = {
+        {.uri = "/", .method = HTTP_GET, .handler = root_handler},
+        {.uri = "/config", .method = HTTP_GET, .handler = page_handler, .user_ctx = "index.html"},
+        {.uri = "/save", .method = HTTP_POST, .handler = save_wifi_handler},
+        {.uri = "/api/status", .method = HTTP_GET, .handler = status_handler},
+        {.uri = "/settings", .method = HTTP_GET, .handler = page_handler, .user_ctx = "settings.html"},
+        {.uri = "/api/settings", .method = HTTP_GET, .handler = settings_get_handler},
+        {.uri = "/api/settings", .method = HTTP_POST, .handler = settings_post_handler},
+        {.uri = "/reconnect", .method = HTTP_GET, .handler = reconnect_handler},
+        {.uri = "/reset", .method = HTTP_GET, .handler = reset_handler},
+        {.uri = "/*", .method = HTTP_GET, .handler = static_handler},
+    };
+    for (size_t i = 0; i < sizeof(routes)/sizeof(routes[0]); i++) {
+        if (httpd_register_uri_handler(s_server, &routes[i]) != ESP_OK) {
+            httpd_stop(s_server);
+            s_server = NULL;
+            return NULL;
+        }
+    }
+    return s_server;
 }
 
-/**
- * @brief 停止HTTP服务器
- *
- * @param server HTTP服务器句柄
- */
 void http_server_stop(httpd_handle_t server)
 {
-    if (server) {
-        httpd_stop(server);
-    }
+    if (server && server == s_server) { httpd_stop(server); s_server = NULL; }
 }

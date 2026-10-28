@@ -5,6 +5,8 @@ function updateStatus(){
     document.getElementById('mode').innerText=d.mode==0?'STA':'AP';
     document.getElementById('heap').innerText=d.heap+' bytes';
     document.getElementById('uptime').innerText=d.uptime+'s';
+    document.getElementById('title').textContent=d.title||'暂无内容';
+    document.getElementById('error').textContent=d.last_error||'ESP_OK';
     var s=document.getElementById('status');
     if(d.status==2){s.className='status status-connected';s.innerText='Connected';}
     else if(d.status==4){s.className='status status-ap';s.innerText='AP Mode';}
