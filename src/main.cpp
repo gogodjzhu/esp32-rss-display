@@ -14,6 +14,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
+#include <stdio.h>
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
@@ -280,7 +281,19 @@ extern "C" void app_main()
 
     /* 初始化图片拉取模块（从 NVS 加载 backend URL），显示连接画面 */
     image_fetcher_init();
-    ui_animation_show_connecting(image_fetcher_get_backend_url());
+
+    /* 连接过渡画面：展示固件版本 / 当前 SSID / 设备 IP / 后端地址 */
+    wifi_info_t *wifi = wifi_manager_get_info();
+    char fw_ver[16];
+    snprintf(fw_ver, sizeof(fw_ver), "v%d", CONFIG_FIRMWARE_VERSION);
+
+    ui_connecting_info_t conn_info = {
+        .firmware    = fw_ver,
+        .ssid        = wifi->ssid,
+        .ip          = wifi->ip,
+        .backend_url = image_fetcher_get_backend_url(),
+    };
+    ui_animation_show_connecting(&conn_info);
 
     /* 初始化交互按钮（板载 BOOT/GPIO0）：单击下一张、双击进评分 */
     button_init();

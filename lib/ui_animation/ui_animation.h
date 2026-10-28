@@ -30,14 +30,27 @@ void ui_animation_task(void);
 void ui_animation_show_no_network(const char *ap_ssid);
 
 /**
+ * @brief "正在连接服务器"过渡画面要展示的设备信息
+ *
+ * 各字段均为可选的以 '\0' 结尾的字符串，传 NULL 或空串时显示为 "-"。
+ */
+typedef struct {
+    const char *firmware;     /* 固件版本，如 "v6" */
+    const char *ssid;         /* 当前配置的 WiFi SSID */
+    const char *ip;           /* 设备 IP 地址 */
+    const char *backend_url;  /* 后端地址 */
+} ui_connecting_info_t;
+
+/**
  * @brief 显示"正在连接服务器"过渡画面
  *
- * 显示 spinner + backend URL 文字，需在 image_fetcher_init() 之后调用。
- * 内部调用 ui_animation_task() 驱动一帧渲染。
+ * 顶部为 spinner + 提示文字，下方以「标签 + 数值」两列紧凑列出固件版本、
+ * 当前 SSID、设备 IP 与后端地址，便于现场排查连接问题。需在
+ * image_fetcher_init() 之后调用。内部调用 ui_animation_task() 驱动一帧渲染。
  *
- * @param backend_url 实际使用的后端地址字符串
+ * @param info 待显示的信息集合（字段可为 NULL）
  */
-void ui_animation_show_connecting(const char *backend_url);
+void ui_animation_show_connecting(const ui_connecting_info_t *info);
 
 /* 仅更新底部进度条（0-100），不清空图片区域 */
 void ui_animation_update_bottom_bar(int percent);

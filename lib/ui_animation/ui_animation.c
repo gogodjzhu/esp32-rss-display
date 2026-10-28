@@ -404,7 +404,23 @@ void ui_animation_show_no_network(const char *ap_ssid)
     lv_obj_align(label3, LV_ALIGN_CENTER, 0, 105);
 }
 
-void ui_animation_show_connecting(const char *backend_url)
+/* 在连接过渡画面上添加一行「标签 + 数值」信息（左灰标签、右白数值） */
+static void connecting_add_row(lv_obj_t *scr, int y, const char *label, const char *value)
+{
+    lv_obj_t *lb = lv_label_create(scr);
+    lv_label_set_text(lb, label);
+    lv_obj_set_style_text_color(lb, lv_color_hex(0x8a8a9a), LV_PART_MAIN);
+    lv_obj_set_pos(lb, 14, y);
+
+    lv_obj_t *val = lv_label_create(scr);
+    lv_label_set_text(val, (value && value[0]) ? value : "-");
+    lv_obj_set_style_text_color(val, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_label_set_long_mode(val, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(val, 234);
+    lv_obj_set_pos(val, 72, y);
+}
+
+void ui_animation_show_connecting(const ui_connecting_info_t *info)
 {
     ui_reset_screen();
 
@@ -414,25 +430,32 @@ void ui_animation_show_connecting(const char *backend_url)
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
 
-    /* 居中 spinner，向上偏移留出文字空间 */
+    /* 顶部：spinner 与提示文字水平并排，节省纵向空间给信息列表 */
     lv_obj_t *spinner = lv_spinner_create(scr);
-    lv_obj_set_size(spinner, 60, 60);
-    lv_obj_align(spinner, LV_ALIGN_CENTER, 0, -30);
+    lv_obj_set_size(spinner, 40, 40);
+    lv_obj_set_pos(spinner, 14, 12);
 
-    /* 提示文字 */
-    lv_obj_t *label1 = lv_label_create(scr);
-    lv_label_set_text(label1, "Connecting to server...");
-    lv_obj_set_style_text_color(label1, lv_color_hex(0xffffff), LV_PART_MAIN);
-    lv_obj_align(label1, LV_ALIGN_CENTER, 0, 40);
+    lv_obj_t *title = lv_label_create(scr);
+    lv_label_set_text(title, "Connecting to server...");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), LV_PART_MAIN);
+    lv_obj_set_pos(title, 66, 25);
 
-    /* backend URL（灰色，较小） */
-    lv_obj_t *label2 = lv_label_create(scr);
-    lv_label_set_text(label2, backend_url);
-    lv_obj_set_style_text_color(label2, lv_color_hex(0x888888), LV_PART_MAIN);
-    lv_obj_set_style_text_opa(label2, LV_OPA_COVER, LV_PART_MAIN);
-    lv_label_set_long_mode(label2, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(label2, 300);
-    lv_obj_align(label2, LV_ALIGN_CENTER, 0, 65);
+    /* 分隔线 */
+    lv_obj_t *line = lv_obj_create(scr);
+    lv_obj_set_size(line, 292, 1);
+    lv_obj_set_pos(line, 14, 64);
+    lv_obj_set_style_bg_color(line, lv_color_hex(0x333344), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(line, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(line, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(line, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(line, 0, LV_PART_MAIN);
+    lv_obj_set_scrollable(line, false);
+
+    /* 信息列表：固件版本 / 当前 SSID / 设备 IP / 后端地址 */
+    connecting_add_row(scr, 74,  "FW",   (info ? info->firmware    : NULL));
+    connecting_add_row(scr, 104, "SSID", (info ? info->ssid        : NULL));
+    connecting_add_row(scr, 134, "IP",   (info ? info->ip          : NULL));
+    connecting_add_row(scr, 164, "URL",  (info ? info->backend_url : NULL));
 
     /* 驱动 LVGL 渲染一帧，确保画面更新 */
     ui_animation_task();
