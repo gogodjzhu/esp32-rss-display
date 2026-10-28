@@ -29,13 +29,19 @@ func setupTestDB(t *testing.T) {
 		t.Fatalf("init db: %v", err)
 	}
 	db := database.GetDB()
-	if err := db.Create(&models.Item{FeedID: 1, Title: "t", URL: "u"}).Error; err != nil {
+	// next 请求需要能取到条目所属的订阅源，否则会以 500 结束
+	feed := models.Feed{Name: "test", URL: "http://feed.example/rss", Enabled: true}
+	if err := db.Create(&feed).Error; err != nil {
+		t.Fatalf("seed feed: %v", err)
+	}
+	item := models.Item{FeedID: feed.ID, Title: "t", URL: "http://feed.example/1", ImagePath: "1.jpg"}
+	if err := db.Create(&item).Error; err != nil {
 		t.Fatalf("seed item: %v", err)
 	}
 }
 
-// use a real RFC1123ish "now"? 测试只需要不匹配的旧时间，这里直接构造。
-func ratingRequest(t *testing.T, method, path string, body io.Reader) *httptest.ResponseRecorder {
+// doRatingRequest 调用评分路由；helper 名称不能与路由使用的请求结构体同名。
+func doRatingRequest(t *testing.T, method, path string, body io.Reader) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, body)
 	req.SetPathValue("item_id", "1")
@@ -50,7 +56,7 @@ func writeRating(t *testing.T, rating uint8, deviceID string) int {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	rr := ratingRequest(t, http.MethodPost, "/v1/item/1/rating", bytes.NewReader(payload))
+	rr := doRatingRequest(t, http.MethodPost, "/v1/item/1/rating", bytes.NewReader(payload))
 	return rr.Code
 }
 
@@ -111,7 +117,7 @@ func TestRateItemRejectsInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rr := ratingRequest(t, http.MethodPost, "/v1/item/1/rating", bytes.NewReader([]byte(c.body)))
+			rr := doRatingRequest(t, http.MethodPost, "/v1/item/1/rating", bytes.NewReader([]byte(c.body)))
 			if rr.Code != c.expect {
 				t.Fatalf("expected %d, got %d", c.expect, rr.Code)
 			}
@@ -125,6 +131,35 @@ func TestRateItemRejectsInvalid(t *testing.T) {
 	RateItem(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for missing item, got %d", rr.Code)
+	}
+}
+
+// 评分只写入评分表，不修改设备的 current_item_id，轮播顺序与评分互不影响。
+func TestRateItemDoesNotAdvanceDevice(t *testing.T) {
+	setupTestDB(t)
+	db := database.GetDB()
+	db.Where("device_id = ?", "dev-next").Delete(&models.Device{})
+	var item models.Item
+	db.Order("id ASC").First(&item)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/device/dev-next/next", nil)
+	req.SetPathValue("device_id", "dev-next")
+	GetNextItem(httptest.NewRecorder(), req)
+
+	var device models.Device
+	if err := db.Where("device_id = ?", "dev-next").First(&device).Error; err != nil || device.CurrentItemID == nil {
+		t.Fatalf("device not advanced by next: %v", err)
+	}
+	before := *device.CurrentItemID
+
+	if code := writeRating(t, 3, "dev-next"); code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+	if err := db.Where("device_id = ?", "dev-next").First(&device).Error; err != nil {
+		t.Fatalf("reload device: %v", err)
+	}
+	if device.CurrentItemID == nil || *device.CurrentItemID != before {
+		t.Fatalf("rating must not change current item: before %d, after %v", before, device.CurrentItemID)
 	}
 }
 

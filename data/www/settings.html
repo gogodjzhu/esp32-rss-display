@@ -24,8 +24,10 @@
 <label>后端 API 根地址</label>
 <input type="url" id="api_base_url" maxlength="255" placeholder="http://192.168.x.x:8080">
 <label>设备标识</label>
-<input type="text" id="device_id" maxlength="63" placeholder="test-device-001">
+<input type="text" id="device_id" maxlength="63" placeholder="首次启动自动生成，如 esp32s3-a1b2c3d4e5f6">
+<div class="help-text">留空或自动生成的值可直接使用；保存后不会由固件自动改写</div>
 <div id="migration" class="help-text" style="display:none"></div>
+<div id="degraded" class="status status-disconnected" style="display:none"></div>
 
 <div class="section-title">HTTP Headers</div>
 <div class="help-text">仅附加到后端 API 请求，不用于图片下载；最多 8 项</div>
@@ -92,6 +94,18 @@ window.onload = function() {
       renderHeaders();
     })
     .catch(function(){ renderHeaders(); });
+  // 配置降级时提示：原值仍保留，保存会覆盖，避免用户误认为配置完好
+  fetch('/api/status')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d.config_degraded) return;
+      var el = document.getElementById('degraded');
+      el.textContent = '已保存的配置无法使用（' + (d.config_state||'unknown') + '），设备当前使用默认配置；'
+        + '原始数据仍保留，保存后将被覆盖。'
+        + (d.legacy_invalid_url ? ' 无法识别的旧地址：' + d.legacy_invalid_url : '');
+      el.style.display = 'block';
+    })
+    .catch(function(){});
 };
 
 function saveSettings() {

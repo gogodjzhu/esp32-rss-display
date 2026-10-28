@@ -154,10 +154,21 @@ static esp_err_t status_handler(httpd_req_t *req)
 {
     wifi_info_t wifi;
     app_snapshot_t app;
+    app_config_t config;
+    app_config_status_t config_status;
     wifi_manager_get_snapshot(&wifi);
     app_controller_get_snapshot(&app);
+    app_config_get_active(&config);
+    app_config_get_status(&config_status);
     cJSON *root = cJSON_CreateObject();
     if (!root) return httpd_resp_send_500(req);
+    cJSON_AddStringToObject(root, "device_id", config.device_id);
+    cJSON_AddStringToObject(root, "api_base_url", config.api_base_url[0] ? config.api_base_url : config.legacy_next_url);
+    cJSON_AddStringToObject(root, "config_state", app_config_state_name(config_status.state));
+    cJSON_AddNumberToObject(root, "config_state_code", config_status.state);
+    cJSON_AddBoolToObject(root, "config_degraded", app_config_is_degraded());
+    if (config_status.legacy_invalid_url[0])
+        cJSON_AddStringToObject(root, "legacy_invalid_url", config_status.legacy_invalid_url);
     cJSON_AddNumberToObject(root, "status", wifi.status);
     cJSON_AddNumberToObject(root, "mode", wifi.mode);
     cJSON_AddStringToObject(root, "ip", wifi.ip);

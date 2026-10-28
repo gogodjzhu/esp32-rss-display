@@ -5,7 +5,8 @@
 不得依赖自动扫描来引入库。
 
 app_controller 和 http_server 在 src/CMakeLists.txt 中作为应用组件
-统一注册。历史 image_fetcher、rss_reader 仅作迁移参考，不参与构建。
+统一注册。本目录只保留已注册组件，历史 image_fetcher、rss_reader 已删除；
+tools/check_firmware.py 校验每个组件都真正进入构建。
 
 屏幕、LVGL、字体及标题缓存只允许应用/UI 任务访问。
 网络任务通过结果队列交接数据与 JPEG 缓冲，不直接访问显示。

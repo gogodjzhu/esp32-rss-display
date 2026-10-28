@@ -29,6 +29,8 @@ bool config_model_migrate_url(app_config_t *config, const char *legacy_url);
 bool config_model_next_url(const app_config_t *config, char *out, size_t size);
 bool config_model_rating_url(const app_config_t *config, uint32_t item_id, char *out, size_t size);
 bool config_model_http_url(const char *url);
+/* 由芯片 MAC 生成出厂设备标识，保证多台设备不共用同一测试身份 */
+bool config_model_default_device_id(const uint8_t mac[6], char *out, size_t size);
 #ifdef __cplusplus
 }
 #endif

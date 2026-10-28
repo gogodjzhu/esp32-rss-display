@@ -117,6 +117,29 @@ static void test_migration(void)
     assert(!strcmp(url, "http://backend/prefix/v1/device/device-01/next"));
 }
 
+static void test_device_id(void)
+{
+    /* 出厂标识由 MAC 派生：两台不同设备不会得到同一身份 */
+    uint8_t first[6] = {0x00, 0x11, 0x22, 0xaa, 0xbb, 0xcc};
+    uint8_t second[6] = {0x00, 0x11, 0x22, 0xaa, 0xbb, 0xcd};
+    char id[CONFIG_DEVICE_MAX], other[CONFIG_DEVICE_MAX];
+    assert(config_model_default_device_id(first, id, sizeof(id)));
+    assert(!strcmp(id, "esp32s3-001122aabbcc"));
+    assert(config_model_default_device_id(second, other, sizeof(other)) && strcmp(id, other) != 0);
+    /* 缓存足够写入，但预留长度不足时失败，避免截断成另一个身份 */
+    char narrow[16];
+    assert(!config_model_default_device_id(first, narrow, sizeof(narrow)));
+    app_config_t config = defaults();
+    strcpy(config.device_id, id);
+    assert(config_model_validate(&config));
+    char url[512];
+    assert(config_model_next_url(&config, url, sizeof(url)));
+    assert(!strcmp(url, "http://backend:8080/v1/device/esp32s3-001122aabbcc/next"));
+    /* 显式标识保持原样，不会因生成规则变化被改写 */
+    config = defaults();
+    assert(!strcmp(config.device_id, "device-01"));
+}
+
 static void test_config(void)
 {
     app_config_t config = defaults(), parsed = defaults();
@@ -190,8 +213,9 @@ int main(void)
     test_rating();
     test_clock();
     test_migration();
+    test_device_id();
     test_config();
     test_content();
-    puts("PASS: gestures, rating, clocks, migration, configuration, content");
+    puts("PASS: gestures, rating, clocks, migration, device identity, configuration, content");
     return 0;
 }

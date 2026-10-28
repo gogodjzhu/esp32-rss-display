@@ -170,6 +170,14 @@ static size_t base_length(const app_config_t *config)
     return size;
 }
 
+bool config_model_default_device_id(const uint8_t mac[6], char *out, size_t size)
+{
+    if (!mac || !out || size < sizeof("esp32s3-000000000000")) return false;
+    int n = snprintf(out, size, "esp32s3-%02x%02x%02x%02x%02x%02x",
+                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    return n > 0 && (size_t)n < size && valid_device(out);
+}
+
 bool config_model_next_url(const app_config_t *config, char *out, size_t size)
 {
     if (!size || !config_model_validate(config)) return false;

@@ -1,5 +1,7 @@
 function updateStatus(){
   fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    document.getElementById('device_id').innerText=d.device_id||'N/A';
+    document.getElementById('config_state').innerText=(d.config_state||'N/A')+(d.config_degraded?' (降级，已保存配置保持原值)':'');
     document.getElementById('ip').innerText=d.ip||'N/A';
     document.getElementById('ssid').innerText=d.ssid||'N/A';
     document.getElementById('mode').innerText=d.mode==0?'STA':'AP';

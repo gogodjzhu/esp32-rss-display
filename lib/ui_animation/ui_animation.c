@@ -3,24 +3,19 @@
  * @brief LVGL 页面与底栏；屏幕传输由 display_driver 负责
  */
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <esp_log.h>
+#include <esp_system.h>
 #include <esp_timer.h>
-#include <driver/spi_master.h>
-#include <driver/gpio.h>
-#include <string.h>
 
 #include "lv_conf.h"
 #include "lvgl.h"
 #include "ui_animation.h"
 #include "cjk_font.h"
-
-static const char *TAG = "UI";
-
 #include "display_driver.h"
 #include "board_config.h"
 #include "banner.h"
+
+static const char *TAG = "UI";
 #define TFT_WIDTH DISPLAY_WIDTH
 #define TFT_HEIGHT DISPLAY_HEIGHT
 #define CHUNK_HEIGHT 20
@@ -29,7 +24,6 @@ static lv_display_t *s_disp;
 static uint8_t s_buf1[BUF_SIZE];
 static uint8_t s_buf2[BUF_SIZE];
 static lv_obj_t *s_spinner;
-static lv_obj_t *s_bar;
 
 static void lvgl_flush_cb(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 {
@@ -70,10 +64,7 @@ static void ui_reset_screen(void)
     banner_release();
     lv_obj_t *scr = lv_screen_active();
     lv_obj_clean(scr);
-    s_spinner    = NULL;
-    s_bar        = NULL;
-
-
+    s_spinner = NULL;
     /* 深色背景 */
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x1a1a2e), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
@@ -89,11 +80,9 @@ void ui_animation_init(void)
     /* 加载中文子集字体（从 font flash 分区 mmap），失败不致命，回退默认字体 */
     cjk_font_init();
 
-
-
     /* 初始显示空白深色背景 */
     lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0xf295b9), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x1a1a2e), LV_PART_MAIN);
 
     ESP_LOGI(TAG, "UI 初始化完成，空闲堆：%ld bytes", esp_get_free_heap_size());
 }
@@ -108,19 +97,6 @@ void ui_animation_show_loading(void)
     lv_obj_align(s_spinner, LV_ALIGN_CENTER, 0, 0);
 }
 
-void ui_animation_show_progress(int percent)
-{
-    ui_reset_screen();
-
-    /* 进度条居中 */
-    s_bar = lv_bar_create(lv_screen_active());
-    lv_obj_set_size(s_bar, 240, 16);
-    lv_obj_align(s_bar, LV_ALIGN_CENTER, 0, 0);
-    if (percent < 0)   percent = 0;
-    if (percent > 100) percent = 100;
-    lv_bar_set_value(s_bar, percent, LV_ANIM_ON);
-}
-
 void ui_animation_show_error(void)
 {
     ui_reset_screen();
@@ -129,43 +105,6 @@ void ui_animation_show_error(void)
 
     /* 红色背景提示错误 */
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x2d0a0a), LV_PART_MAIN);
-}
-
-void ui_animation_show_ok(void)
-{
-    ui_reset_screen();
-
-    lv_obj_t *scr = lv_screen_active();
-
-    /* 绿色实心圆 */
-    lv_obj_t *circle = lv_obj_create(scr);
-    lv_obj_set_size(circle, 100, 100);
-    lv_obj_align(circle, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_style_radius(circle, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(circle, lv_color_hex(0x27ae60), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(circle, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(circle, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(circle, 0, LV_PART_MAIN);
-    lv_obj_set_scrollable(circle, false);
-
-    /* 用两段 lv_line 画白色对勾（坐标相对于圆心 50,50） */
-    /* 短边：从 (22,50) → (40,68)，长边：从 (40,68) → (72,30) */
-    static lv_point_precise_t pts_short[2] = {{22, 50}, {40, 68}};
-    static lv_point_precise_t pts_long[2]  = {{40, 68}, {72, 30}};
-
-    lv_obj_t *line1 = lv_line_create(circle);
-    lv_line_set_points(line1, pts_short, 2);
-    lv_obj_set_style_line_color(line1, lv_color_hex(0xffffff), LV_PART_MAIN);
-    lv_obj_set_style_line_width(line1, 6, LV_PART_MAIN);
-    lv_obj_set_style_line_rounded(line1, true, LV_PART_MAIN);
-    lv_obj_set_pos(line1, 0, 0);
-
-    lv_obj_t *line2 = lv_line_create(circle);
-    lv_line_set_points(line2, pts_long, 2);
-    lv_obj_set_style_line_color(line2, lv_color_hex(0xffffff), LV_PART_MAIN);
-    lv_obj_set_style_line_width(line2, 6, LV_PART_MAIN);
-    lv_obj_set_style_line_rounded(line2, true, LV_PART_MAIN);
-    lv_obj_set_pos(line2, 0, 0);
 }
 
 void ui_animation_task(void)
@@ -290,19 +229,35 @@ void ui_animation_show_connecting(const ui_connecting_info_t *info)
     ui_animation_task();
 }
 
+/* 底部 2px 由进度条、评分条和结果条共用；记录当前内容，避免重复写同一条 */
+static int s_bar_percent = -1;
+
+static void write_row(int x, int y, const uint16_t *pixels, int width)
+{
+    ESP_ERROR_CHECK(display_driver_write(x, y, width, 1, pixels));
+}
+
+static void draw_bottom_bar(const uint16_t *row)
+{
+    write_row(0, TFT_HEIGHT - 2, row, TFT_WIDTH);
+    write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
+}
+
+void ui_animation_invalidate_bottom_bar(void)
+{
+    s_bar_percent = -1;
+}
+
 void ui_animation_update_bottom_bar(int percent)
 {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
+    /* 画面上别无变化时跳过 SPI 写入，只有内容变化或被覆盖后才重绘 */
+    if (percent == s_bar_percent) return;
     uint16_t row[TFT_WIDTH];
     for (int x = 0; x < TFT_WIDTH; x++) row[x] = x < TFT_WIDTH * percent / 100 ? 0x7634 : 0x8631;
-    ui_animation_write_row(0, TFT_HEIGHT - 2, row, TFT_WIDTH);
-    ui_animation_write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
-}
-
-void ui_animation_write_row(int x, int y, const uint16_t *pixels, int width)
-{
-    ESP_ERROR_CHECK(display_driver_write(x, y, width, 1, pixels));
+    draw_bottom_bar(row);
+    s_bar_percent = percent;
 }
 
 void ui_animation_prepare_image_mode(void)
@@ -311,6 +266,7 @@ void ui_animation_prepare_image_mode(void)
     lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x000000), LV_PART_MAIN);
     /* 先完成 LVGL 的整屏刷新，此后图片、标题和底栏由同一任务直接绘制 */
     lv_refr_now(s_disp);
+    ui_animation_invalidate_bottom_bar();
 }
 
 /* ---------- 评价指示条（直接写 TFT，复用底部 2px 区域） ---------- */
@@ -365,9 +321,9 @@ void ui_animation_show_rating_bar(int sel)
         for (int x = x_start; x < x_end; x++) row[x] = color;
     }
 
-    /* 直接写 TFT 底部两行（y:238, y:239） */
-    ui_animation_write_row(0, TFT_HEIGHT - 2, row, TFT_WIDTH);
-    ui_animation_write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
+    /* 直接写 TFT 底部两行（y:238, y:239），进度条状态随之失效 */
+    draw_bottom_bar(row);
+    ui_animation_invalidate_bottom_bar();
 
     #undef RGB24_TO_565_SWAPPED
 }
@@ -399,69 +355,8 @@ void ui_animation_show_submit_bar(bool success)
     uint16_t row[TFT_WIDTH];
     for (int x = 0; x < TFT_WIDTH; x++) row[x] = color;
 
-    ui_animation_write_row(0, TFT_HEIGHT - 2, row, TFT_WIDTH);
-    ui_animation_write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
+    draw_bottom_bar(row);
+    ui_animation_invalidate_bottom_bar();
 
     #undef RGB24_TO_565_SWAPPED
-}
-
-/* ======================================================================
- *                       中文点阵字体测试画面
- * ==================================================================== */
-
-/**
- * @brief 选择中文字体；不可用时回退 LVGL 默认字体
- */
-static const lv_font_t *pick_cjk_font(int size_px)
-{
-    const lv_font_t *font = cjk_font_get(size_px);
-    return font ? font : LV_FONT_DEFAULT;
-}
-
-void ui_animation_show_font_test(void)
-{
-    ui_reset_screen();
-
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x101018), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
-
-    /* 标题（24px） */
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "中文显示测试");
-    lv_obj_set_style_text_font(title, pick_cjk_font(24), LV_PART_MAIN);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), LV_PART_MAIN);
-    lv_obj_set_pos(title, 6, 4);
-
-    /* 副标题：数字与中英混排（16px） */
-    lv_obj_t *sub = lv_label_create(scr);
-    lv_label_set_text(sub, "0123456789 ABC abc ！？，。、“”（）《》");
-    lv_obj_set_style_text_font(sub, pick_cjk_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(sub, lv_color_hex(0x9be7ff), LV_PART_MAIN);
-    lv_obj_set_pos(sub, 6, 34);
-
-    /* 正文一：《千字文》（16px，自动换行，约 3 行） */
-    lv_obj_t *body1 = lv_label_create(scr);
-    lv_label_set_text(body1,
-        "天地玄黄，宇宙洪荒。日月盈昃，辰宿列张。寒来暑往，秋收冬藏。"
-        "闰余成岁，律吕调阳。云腾致雨，露结为霜。");
-    lv_obj_set_style_text_font(body1, pick_cjk_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(body1, lv_color_hex(0xe8e8e8), LV_PART_MAIN);
-    lv_label_set_long_mode(body1, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(body1, 308);
-    lv_obj_set_pos(body1, 6, 58);
-
-    /* 正文二：《兰亭集序》+《百家姓》（16px，约 3 行） */
-    lv_obj_t *body2 = lv_label_create(scr);
-    lv_label_set_text(body2,
-        "永和九年，岁在癸丑，暮春之初，会于会稽山阴之兰亭。"
-        "赵钱孙李，周吴郑王，冯陈褚卫，蒋沈韩杨。");
-    lv_obj_set_style_text_font(body2, pick_cjk_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(body2, lv_color_hex(0xe8e8e8), LV_PART_MAIN);
-    lv_label_set_long_mode(body2, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(body2, 308);
-    lv_obj_set_pos(body2, 6, 142);
-
-    /* 立即渲染一帧 */
-    ui_animation_task();
 }

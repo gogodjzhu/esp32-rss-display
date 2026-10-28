@@ -32,9 +32,11 @@ config BACKEND_BASE_URL
         后端根地址，设备会自动生成内容与评分 API 路径。
 
 config DEVICE_ID
-    string "Device ID"
-    default "test-device-001"
+    string "Device ID override"
+    default ""
     help
-        设备唯一标识符，用于后端 API 路径。
+        留空表示首次启动时由芯片 MAC 生成唯一标识（例如 esp32s3-a1b2c3d4e5f6）
+        并随配置保存，多台设备不会共用同一测试身份。
+        填写后作为显式覆盖，已保存的显式标识不会被固件自动修改。
 
 endmenu

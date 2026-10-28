@@ -70,6 +70,11 @@ project = json.loads((args.build_dir / "project_description.json").read_text())
 assert project["target"] == "esp32s3"
 components = project["build_components"]
 assert "src" in components and "network_worker" in components
-assert "image_fetcher" not in components and "rss_reader" not in components
+# 历史模块已清理；lib 下每个注册组件都必须真正进入构建
+for legacy in ("image_fetcher", "rss_reader"):
+    assert not (ROOT / "lib" / legacy).exists(), f"历史模块 {legacy} 仍在源码树中"
+registered = sorted(p.parent.name for p in (ROOT / "lib").glob("*/CMakeLists.txt"))
+missing = [name for name in registered if name not in components]
+assert registered and not missing, f"组件未进入构建: {missing}"
 print(json.dumps(manifest, indent=2, ensure_ascii=False))
 print("PASS: S3 target, partition binary, resource bounds, component boundaries")
