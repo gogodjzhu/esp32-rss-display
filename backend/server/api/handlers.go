@@ -12,9 +12,11 @@ import (
 )
 
 type NextItemResponse struct {
-	Title    string `json:"title"`
-	ImageURL string `json:"image_url"`
-	Source   string `json:"source"`
+	// ItemID 为条目的稳定整型标识，设备端评分时原样回传。
+	ItemID      uint   `json:"item_id"`
+	Title       string `json:"title"`
+	ImageURL    string `json:"image_url"`
+	Source      string `json:"source"`
 	// PublishedAt 为条目发布时间的本地时区展示字符串（YYYY-MM-DD HH:MM），
 	// 供设备端在标题浮层首行显示；无发布时间时回退为入库时间。
 	PublishedAt string `json:"published_at"`
@@ -85,6 +87,7 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 	db.Save(&device)
 
 	resp := NextItemResponse{
+		ItemID:      item.ID,
 		Title:       item.Title,
 		ImageURL:    imageURL,
 		Source:      feed.Name,

@@ -39,6 +39,7 @@ func Init(cfg *config.DatabaseConfig) error {
 		&models.Device{},
 		&models.Feed{},
 		&models.Item{},
+		&models.ItemRating{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}

@@ -30,4 +30,9 @@ var (
 		Name: "device_registered_total",
 		Help: "Total number of registered devices",
 	})
+
+	DeviceRatingTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "device_rating_total",
+		Help: "Total number of item ratings received from devices",
+	})
 )

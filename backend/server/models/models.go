@@ -40,3 +40,15 @@ type Item struct {
 func (Item) TableName() string {
 	return "items"
 }
+
+type ItemRating struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	ItemID    uint      `gorm:"column:item_id;index" json:"item_id"`
+	DeviceID  string    `gorm:"column:device_id;index" json:"device_id"`
+	Rating    uint8     `gorm:"column:rating" json:"rating"`
+	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+}
+
+func (ItemRating) TableName() string {
+	return "item_ratings"
+}
