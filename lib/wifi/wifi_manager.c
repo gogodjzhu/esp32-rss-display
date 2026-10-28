@@ -197,9 +197,14 @@ esp_err_t wifi_manager_start(void)
     return s_initialized ? esp_event_post(WIFI_MANAGER_EVENT, CMD_START, NULL, 0, 0) : ESP_ERR_INVALID_STATE;
 }
 
+bool wifi_manager_can_reconnect(void)
+{
+    return s_initialized && s_sta.sta.ssid[0] != '\0';
+}
+
 esp_err_t wifi_manager_reconnect(void)
 {
-    if (!s_initialized || !s_sta.sta.ssid[0]) return ESP_ERR_INVALID_STATE;
+    if (!wifi_manager_can_reconnect()) return ESP_ERR_INVALID_STATE;
     return esp_event_post(WIFI_MANAGER_EVENT, CMD_RECONNECT, NULL, 0, 0);
 }
 

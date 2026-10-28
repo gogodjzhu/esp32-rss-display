@@ -64,6 +64,7 @@ esp_err_t cjk_font_init(void)
     const uint8_t *signature = ptr;
     if ((memcmp(signature, "\x00\x01\x00\x00", 4) != 0 && memcmp(signature, "OTTO", 4) != 0)
         || cjk_font_get(CJK_FONT_DEFAULT_SIZE) == NULL) {
+        ESP_LOGW(TAG, "font 分区内容不可用，标题回退默认字体（中文覆盖不完整）");
         esp_partition_munmap(s_mmap_handle);
         s_font_data = NULL;
         s_font_size = 0;

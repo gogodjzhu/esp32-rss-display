@@ -241,10 +241,35 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
     return err;
 }
 
+/* 重连会立即拆掉 WiFi，响应还在 TCP 缓冲里就会连同连接一起丢失；
+ * 因此先发完页面，再延迟触发重连，让浏览器能看到提示页。 */
+#define RECONNECT_DELAY_US (400 * 1000)
+static esp_timer_handle_t s_reconnect_timer;
+
+static void reconnect_timer_callback(void *arg)
+{
+    (void)arg;
+    wifi_manager_reconnect();
+}
+
 static esp_err_t reconnect_handler(httpd_req_t *req)
 {
-    if (wifi_manager_reconnect() != ESP_OK) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "reconnect unavailable");
-    return serve_file(req, "reconnect.html");
+    if (!wifi_manager_can_reconnect()) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "reconnect unavailable");
+    esp_err_t err = serve_file(req, "reconnect.html");
+    if (err != ESP_OK) return err;
+    bool scheduled = false;
+    if (!s_reconnect_timer) {
+        const esp_timer_create_args_t args = {.callback = reconnect_timer_callback, .name = "wifi-reconnect"};
+        if (esp_timer_create(&args, &s_reconnect_timer) != ESP_OK) s_reconnect_timer = NULL;
+    }
+    if (s_reconnect_timer) {
+        esp_err_t started = esp_timer_start_once(s_reconnect_timer, RECONNECT_DELAY_US);
+        /* 已在倒计时说明重连已安排，重复请求无需再触发 */
+        scheduled = started == ESP_OK || started == ESP_ERR_INVALID_STATE;
+    }
+    /* 定时器不可用时退回立即重连，功能不因页面提示丢失 */
+    if (!scheduled) wifi_manager_reconnect();
+    return err;
 }
 
 static esp_err_t reset_handler(httpd_req_t *req)
