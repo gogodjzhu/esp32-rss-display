@@ -229,8 +229,8 @@ void ui_animation_show_connecting(const ui_connecting_info_t *info)
     ui_animation_task();
 }
 
-/* 底部 2px 由进度条、评分条和结果条共用；记录当前内容，避免重复写同一条 */
-static int s_bar_percent = -1;
+/* 底部 2px 仅用于评分条/提交结果条；进度改由 banner 中间竖线表示 */
+static int s_progress_percent = -1;
 
 static void write_row(int x, int y, const uint16_t *pixels, int width)
 {
@@ -243,21 +243,27 @@ static void draw_bottom_bar(const uint16_t *row)
     write_row(0, TFT_HEIGHT - 1, row, TFT_WIDTH);
 }
 
-void ui_animation_invalidate_bottom_bar(void)
+static void draw_bottom_idle(void)
 {
-    s_bar_percent = -1;
+    uint16_t row[TFT_WIDTH];
+    for (int x = 0; x < TFT_WIDTH; x++) row[x] = 0x0000;
+    draw_bottom_bar(row);
 }
 
-void ui_animation_update_bottom_bar(int percent)
+void ui_animation_invalidate_bottom_bar(void)
+{
+    s_progress_percent = -1;
+}
+
+void ui_animation_update_progress(int percent)
 {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
     /* 画面上别无变化时跳过 SPI 写入，只有内容变化或被覆盖后才重绘 */
-    if (percent == s_bar_percent) return;
-    uint16_t row[TFT_WIDTH];
-    for (int x = 0; x < TFT_WIDTH; x++) row[x] = x < TFT_WIDTH * percent / 100 ? 0x7634 : 0x8631;
-    draw_bottom_bar(row);
-    s_bar_percent = percent;
+    if (percent == s_progress_percent) return;
+    banner_set_progress(percent);
+    draw_bottom_idle();   /* 评分/提交条结束后恢复黑色底边 */
+    s_progress_percent = percent;
 }
 
 void ui_animation_prepare_image_mode(void)

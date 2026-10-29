@@ -1,6 +1,7 @@
 #include "app_state.h"
 #include "config_model.h"
 #include "content_item.h"
+#include "text_utf8.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -181,14 +182,88 @@ static void test_config(void)
     for (size_t i = 0; i < sizeof(bad_urls) / sizeof(bad_urls[0]); i++) assert(!config_model_http_url(bad_urls[i]));
 }
 
+static void test_stock_banner(void)
+{
+    content_item_t item;
+    assert(content_item_parse("{\"item_id\":1,\"stocks\":["
+        "{\"name\":\"上证指数\",\"change_pct\":0.85},"
+        "{\"name\":\"NASDAQ\",\"change_pct\":-1.23},"
+        "{\"name\":\"BTC\",\"change_pct\":0}]}", &item));
+    assert(item.stock_count == 3);
+    assert(item.stocks[0].change_bp == 85);
+    assert(item.stocks[1].change_bp == -123);
+    assert(item.stocks[2].change_bp == 0);
+    /* 模型保留完整名称，显示裁剪由 banner 按像素宽度处理 */
+    assert(!strcmp(item.stocks[0].name, "上证指数"));
+    assert(!strcmp(item.stocks[1].name, "NASDAQ"));
+
+    /* 行情是可选字段：非法条目丢弃、超限截断，都不能让整条内容失败 */
+    const char *tolerated[] = {
+        "{\"item_id\":1,\"title\":\"T\",\"stocks\":{}}",
+        "{\"item_id\":1,\"title\":\"T\",\"stocks\":[{\"name\":\"A\"}]}",
+        "{\"item_id\":1,\"title\":\"T\",\"stocks\":[{\"name\":\"A\",\"change_pct\":\"1\"}]}",
+        "{\"item_id\":1,\"title\":\"T\",\"stocks\":[{\"name\":\"\",\"change_pct\":1}]}",
+        "{\"item_id\":1,\"title\":\"T\",\"stocks\":[{},{}]}",
+        "{\"item_id\":1,\"title\":\"T\",\"stocks\":null}",
+    };
+    for (size_t i = 0; i < sizeof(tolerated) / sizeof(tolerated[0]); i++) {
+        assert(content_item_parse(tolerated[i], &item));
+        assert(item.stock_count == 0 && !strcmp(item.title, "T"));
+    }
+
+    /* 非法条目夹在合法条目之间时逐条跳过，保持原始顺序 */
+    assert(content_item_parse("{\"item_id\":1,\"stocks\":["
+        "{\"name\":\"\",\"change_pct\":1},"
+        "{\"name\":\"B\",\"change_pct\":2},"
+        "{\"name\":\"C\",\"change_pct\":\"x\"},"
+        "{\"name\":\"D\",\"change_pct\":3}]}", &item));
+    assert(item.stock_count == 2);
+    assert(!strcmp(item.stocks[0].name, "B") && item.stocks[0].change_bp == 200);
+    assert(!strcmp(item.stocks[1].name, "D") && item.stocks[1].change_bp == 300);
+
+    /* 超过 3 项按顺序截断，不视为协议错误 */
+    assert(content_item_parse("{\"item_id\":1,\"stocks\":["
+        "{\"name\":\"A\",\"change_pct\":1},{\"name\":\"B\",\"change_pct\":1},"
+        "{\"name\":\"C\",\"change_pct\":1},{\"name\":\"D\",\"change_pct\":1}]}", &item));
+    assert(item.stock_count == 3 && !strcmp(item.stocks[2].name, "C"));
+
+    /* 名称超过存储上限时按完整码点截断，不留下半个 UTF-8 字符 */
+    assert(content_item_parse("{\"item_id\":1,\"stocks\":["
+        "{\"name\":\"非常长的股票名称测试中文\",\"change_pct\":1}]}", &item));
+    assert(item.stock_count == 1 && !strcmp(item.stocks[0].name, "非常长的股票名称测试"));
+}
+
+static void test_text_utf8(void)
+{
+    const char *text = "中A";
+    const char *p = text;
+    assert(text_utf8_next(&p) == 0x4E2D && p - text == 3);
+    assert(text_utf8_is_cjk(0x4E2D));
+    assert(!text_utf8_is_cjk('A'));
+    assert(text_utf8_is_space(' ') && text_utf8_is_space('\t'));
+    assert(text_utf8_next(&p) == 'A' && *p == '\0');
+
+    char clipped[CONTENT_STOCK_NAME_MAX];
+    text_utf8_copy("上证指数", clipped, sizeof(clipped));
+    assert(!strcmp(clipped, "上证指数"));
+    text_utf8_copy("", clipped, sizeof(clipped));
+    assert(clipped[0] == '\0');
+
+    /* 缓冲不足时不能截断出半个 UTF-8 码点 */
+    char tiny[4];
+    text_utf8_copy("上证指数", tiny, sizeof(tiny));
+    assert(!strcmp(tiny, "上"));
+    text_utf8_copy("上证指数", tiny, 2);
+    assert(tiny[0] == '\0');
+    text_utf8_copy("A", tiny, 2);
+    assert(!strcmp(tiny, "A"));
+}
+
 static void test_content(void)
 {
     content_item_t item;
     assert(content_item_parse("{\"item_id\":42,\"title\":\"新闻 \\u4e2d\\u6587 \\\"quote\\\"\",\"image_url\":\"https://host/image.jpg\",\"published_at\":\"2026-10-28 10:00\"}", &item));
     assert(item.id == 42 && strstr(item.title, "中文"));
-    char banner[512];
-    content_item_banner(&item, banner, sizeof(banner));
-    assert(!strncmp(banner, "2026-10-28 10:00\n", 17));
     const char *bad[] = {"{", "[]", "{\"item_id\":0}", "{\"item_id\":-1}", "{\"item_id\":1.5}",
         "{\"item_id\":4294967296}", "{\"item_id\":\"42\"}", "{\"item_id\":42,\"image_url\":\"file:///x\"}",
         "{\"item_id\":42,\"title\":true}", "{\"item_id\":42} trailing"};
@@ -216,6 +291,8 @@ int main(void)
     test_device_id();
     test_config();
     test_content();
-    puts("PASS: gestures, rating, clocks, migration, device identity, configuration, content");
+    test_text_utf8();
+    test_stock_banner();
+    puts("PASS: gestures, rating, clocks, migration, device identity, configuration, content, UTF-8 text, stock banner");
     return 0;
 }

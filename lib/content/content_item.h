@@ -9,17 +9,27 @@ extern "C" {
 #define CONTENT_TITLE_MAX 384
 #define CONTENT_TIME_MAX 32
 #define CONTENT_URL_MAX 512
+#define CONTENT_STOCK_MAX 3
+#define CONTENT_STOCK_NAME_MAX 32
+
+/* 行情涨跌以 0.01% 为单位，正数上涨、负数下跌，避免浮点比较误差 */
+typedef struct {
+    char name[CONTENT_STOCK_NAME_MAX];   /* 原始名称，按码点安全截断，不做显示裁剪 */
+    int32_t change_bp;
+} content_stock_t;
 
 typedef struct {
     uint32_t id;
     char title[CONTENT_TITLE_MAX];
     char published_at[CONTENT_TIME_MAX];
     char image_url[CONTENT_URL_MAX];
+    content_stock_t stocks[CONTENT_STOCK_MAX];
+    uint8_t stock_count;
 } content_item_t;
 
-/* 解析失败不改变调用方已有内容 */
+/* 解析失败不改变调用方已有内容。
+ * stocks 为可选装饰字段：非法条目逐条丢弃、超过 3 项截断，不影响内容本身。 */
 bool content_item_parse(const char *json, content_item_t *out);
-void content_item_banner(const content_item_t *item, char *out, size_t size);
 #ifdef __cplusplus
 }
 #endif

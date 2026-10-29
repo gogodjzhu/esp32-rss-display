@@ -19,9 +19,10 @@ typedef struct {
 } ui_connecting_info_t;
 void ui_animation_show_connecting(const ui_connecting_info_t *info);
 void ui_animation_prepare_image_mode(void);
-/* 底部 2px 被其他内容覆盖后必须失效，下一次进度更新才会重绘 */
+/* 底部 2px 被评分/提交条覆盖后必须失效，下一次进度更新才会恢复 */
 void ui_animation_invalidate_bottom_bar(void);
-void ui_animation_update_bottom_bar(int percent);
+/* 更新 banner 中间进度竖线，并清理底部评分/提交条 */
+void ui_animation_update_progress(int percent);
 void ui_animation_show_rating_bar(int rating);
 void ui_animation_show_submit_bar(bool success);
 #ifdef __cplusplus

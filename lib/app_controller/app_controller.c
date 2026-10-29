@@ -69,7 +69,7 @@ static void action(app_action_t value, int64_t now)
 {
     if (value == APP_ACTION_NEXT) request_next(now);
     else if (value == APP_ACTION_RATING) ui_animation_show_rating_bar(s_app.state.rating);
-    else if (value == APP_ACTION_RESTORE) ui_animation_update_bottom_bar(app_state_progress(&s_app.state, now));
+    else if (value == APP_ACTION_RESTORE) ui_animation_update_progress(app_state_progress(&s_app.state, now));
     else if (value == APP_ACTION_SUBMIT) {
         network_job_t job = {.kind = NETWORK_RATE, .request_id = ++s_app.sequence,
             .item_id = s_app.state.item_id, .rating = s_app.state.rating};
@@ -190,7 +190,7 @@ esp_err_t app_controller_run(void)
         receive_results(now);
         if ((!s_app.has_content || s_app.state.next_requested) && s_app.state.view != APP_RATING
             && s_app.state.view != APP_SUBMITTING && s_app.state.view != APP_FEEDBACK) request_next(now);
-        if (s_app.state.view == APP_NORMAL) ui_animation_update_bottom_bar(app_state_progress(&s_app.state, now));
+        if (s_app.state.view == APP_NORMAL) ui_animation_update_progress(app_state_progress(&s_app.state, now));
         content_view_tick();
         unsigned stack = uxTaskGetStackHighWaterMark(NULL);
         portENTER_CRITICAL(&s_lock);

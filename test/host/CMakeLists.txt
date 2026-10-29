@@ -12,8 +12,9 @@ target_include_directories(cjson PUBLIC "${IDF_PATH}/components/json/cJSON")
 add_library(models STATIC
     "${ROOT}/lib/app_config/config_model.c"
     "${ROOT}/lib/content/content_item.c"
+    "${ROOT}/lib/text_utf8/text_utf8.c"
     "${ROOT}/lib/app_controller/app_state.c")
-target_include_directories(models PUBLIC "${ROOT}/lib/app_config" "${ROOT}/lib/content" "${ROOT}/lib/app_controller")
+target_include_directories(models PUBLIC "${ROOT}/lib/app_config" "${ROOT}/lib/content" "${ROOT}/lib/text_utf8" "${ROOT}/lib/app_controller")
 target_link_libraries(models PUBLIC cjson m)
 target_compile_options(models PRIVATE -Wall -Wextra -Werror)
 if(ENABLE_SANITIZERS)
