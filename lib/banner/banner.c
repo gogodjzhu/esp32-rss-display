@@ -27,11 +27,11 @@ static void banner_write_row(int x, int y, const uint16_t *pixels, int width)
 #define BANNER_PAD_X       6
 #define BANNER_PAD_Y       13         /* 行上下内边距：越大 banner 越高 */
 #define BANNER_MAX_LINES   12
-#define BANNER_MAX_GLYPHS  160
+#define BANNER_MAX_GLYPHS  UI_BANNER_MAX_GLYPHS
 #define BANNER_MAX_H       72          /* 背景缓冲最大高度（像素），需 >= 行高 + 2*BANNER_PAD_Y */
 #define BANNER_BG_ALPHA    150         /* 0-255，banner 底色不透明度 */
-#define BANNER_HOLD_MS     2500        /* 每行停留时间（毫秒） */
-#define BANNER_SCROLL_MS   450         /* 行切换滚动时间（毫秒） */
+#define BANNER_HOLD_MS     UI_STOCK_HOLD_MS   /* 每行/每条行情停留时间（毫秒） */
+#define BANNER_SCROLL_MS   UI_STOCK_SCROLL_MS /* 行/行情切换滚动时间（毫秒） */
 
 /* 左右分栏：左侧窄行情栏，右侧时间/标题；中间竖线兼作进度条。
  * 水平留白统一为 PAD_X（屏幕两侧）和 COL_GAP（竖线两侧）。 */
@@ -242,11 +242,13 @@ static void banner_fit_text(const lv_font_t *font, const char *text, int max_w,
 }
 
 /* 从 x 开始放置一段文字，超出 limit 时按整字裁剪 */
-static void banner_place_text(const lv_font_t *font, const char *text, int x, int limit,
-                              int line, int8_t stock_index, uint16_t color, int y_shift)
+static int banner_place_text(const lv_font_t *font, const char *text, int x, int limit,
+                             int line, int8_t stock_index, uint16_t color, int y_shift,
+                             int max_glyphs)
 {
+    int placed = 0;
     int pen = x;
-    for (const char *p = text; *p; ) {
+    for (const char *p = text; *p && placed < max_glyphs; ) {
         const char *q = p;
         uint32_t cp = text_utf8_next(&q);
         int adv = lv_font_get_glyph_width(font, cp, 0);
@@ -254,10 +256,12 @@ static void banner_place_text(const lv_font_t *font, const char *text, int x, in
 
         uint32_t next = 0;
         if (*q) { const char *q2 = q; next = text_utf8_next(&q2); }
-        banner_add_glyph(font, cp, next, pen, line, stock_index, color, y_shift);
+        /* 缺字形时跳过该字但继续后面的内容；表满时后续添加会自然失败 */
+        if (banner_add_glyph(font, cp, next, pen, line, stock_index, color, y_shift)) placed++;
         pen += adv;
         p = q;
     }
+    return placed;
 }
 
 /* 左侧股票窄栏：每次只显示一个股票，名称一行、涨跌幅一行，整体上下滚动 */
@@ -284,14 +288,15 @@ static void banner_place_stock_line(const lv_font_t *font,
         int name_w = banner_text_width(font, name);
         int name_x = cell_x + (width - name_w) / 2;
         if (name_x < cell_x) name_x = cell_x;
-        banner_place_text(font, name, name_x, cell_end,
-                          i, i, 0xFFFF, 0);
+        int used = banner_place_text(font, name, name_x, cell_end,
+                                     i, i, 0xFFFF, 0, UI_STOCK_NAME_GLYPHS);
 
         int pct_w = banner_text_width(font, pct);
         int pct_x = cell_x + (width - pct_w) / 2;
         if (pct_x < cell_x) pct_x = cell_x;
         banner_place_text(font, pct, pct_x, cell_end,
-                          i, i, banner_stock_color(stocks[i].change_bp), stock_line_h);
+                          i, i, banner_stock_color(stocks[i].change_bp), stock_line_h,
+                          UI_STOCK_GLYPHS - used);
     }
 }
 
@@ -387,7 +392,7 @@ void banner_prepare(const banner_content_t *content)
     /* 第一遍：按常规文本规则换行（拉丁词整体不拆分，CJK 可逐字断行），
      * 并记录每个字的笔位置与所属行 */
     typedef struct { int16_t px; uint8_t line; const char *cp; } placed_t;
-    static placed_t placed[BANNER_MAX_GLYPHS];
+    static placed_t placed[UI_TITLE_GLYPHS];
     int placed_cnt = 0;
     int pen_x = x_left;
     int line  = 0;
@@ -411,7 +416,7 @@ void banner_prepare(const banner_content_t *content)
     }
 
     const char *p = text;
-    while (*p && placed_cnt < BANNER_MAX_GLYPHS) {
+    while (*p && placed_cnt < UI_TITLE_GLYPHS) {
         /* 显式换行 */
         {
             const char *q0 = p;
@@ -476,7 +481,7 @@ void banner_prepare(const banner_content_t *content)
         pending_space_w = 0;
 
         /* 放置单元内每个字；超长单词退化为逐字断行 */
-        for (const char *s = unit_start; s < unit_end && placed_cnt < BANNER_MAX_GLYPHS; ) {
+        for (const char *s = unit_start; s < unit_end && placed_cnt < UI_TITLE_GLYPHS; ) {
             const char *t = s;
             uint32_t    c = text_utf8_next(&t);
             int adv = lv_font_get_glyph_width(font, c, 0);

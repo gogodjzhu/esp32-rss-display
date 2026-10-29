@@ -14,6 +14,7 @@ import (
 	"github.com/esp32-rss-display/backend/server/image"
 	"github.com/esp32-rss-display/backend/server/models"
 	rssworker "github.com/esp32-rss-display/backend/server/rss"
+	"github.com/esp32-rss-display/backend/server/stocks"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 )
@@ -68,6 +69,13 @@ func runServer(cmd *cobra.Command, args []string) {
 	worker := rssworker.New(&cfg.RSS, imageDir)
 	worker.Start()
 
+	// 行情服务使用内存快照，启动失败或未配置时 next 响应不携带 stocks
+	stockService := stocks.New(&cfg.Stocks)
+	if stockService != nil {
+		stockService.Start()
+		api.StockQuotes = stockService
+	}
+
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {
 			log.Fatalf("Server error: %v", err)
@@ -79,6 +87,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	<-quit
 
 	worker.Stop()
+	stockService.Stop()
 	log.Println("Server stopped")
 }
 

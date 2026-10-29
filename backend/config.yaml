@@ -11,6 +11,68 @@ rss:
   image_width: 320
   image_height: 240
 
+# next 响应附带的行情栏；每次返回的条数由设备 next 的 size 参数决定
+# 编号格式：sh/sz/bj 为 A 股与指数，hk 为港股，us 为美股
+# name 可覆盖数据源返回的名称，留空则使用数据源名称
+stocks:
+  enabled: true
+  refresh_seconds: 30
+  symbols:
+    - code: sh000001
+      name: 上证
+    - code: sz399001
+      name: 深证
+    - code: usDJI
+      name: 道琼斯
+    - code: usIXIC
+      name: 纳指
+    - code: usAAPL
+      name: APPL
+    - code: usTSLA
+      name: TSLA
+    # 美股主要科技股
+    - code: usMSFT
+      name: 微软
+    - code: usNVDA
+      name: 英伟达
+    - code: usGOOGL
+      name: 谷歌
+    - code: usAMZN
+      name: 亚马逊
+    - code: usMETA
+      name: Meta
+    - code: usAVGO
+      name: 博通
+    - code: usAMD
+      name: AMD
+    - code: usNFLX
+      name: 奈飞
+    - code: usORCL
+      name: 甲骨文
+    - code: usPLTR
+      name: PLTR
+    - code: usINTC
+      name: 英特尔
+    - code: usQCOM
+      name: 高通
+    - code: usTSM
+      name: 台积电
+    # 国内主要港股科技股
+    - code: hk00700
+      name: 腾讯
+    - code: hk09988
+      name: 阿里
+    - code: hk03690
+      name: 美团
+    - code: hk01810
+      name: 小米
+    - code: hk09618
+      name: 京东
+    - code: hk01211
+      name: 比亚迪
+    - code: hk00981
+      name: 中芯
+
 feeds:
   - name: HackerNews
     url: https://news.ycombinator.com/rss

@@ -6,4 +6,4 @@ idf_component_register(
          "../lib/http_server/http_server.c"
     INCLUDE_DIRS "." "../lib/app_controller" "../lib/http_server"
     PRIV_REQUIRES app_config button_input content_view network_worker ui_animation wifi
-                  esp_timer esp_system esp_http_server spiffs json heap)
+                  esp_timer esp_system esp_http_server spiffs json heap ui_limits)

@@ -14,7 +14,7 @@ add_library(models STATIC
     "${ROOT}/lib/content/content_item.c"
     "${ROOT}/lib/text_utf8/text_utf8.c"
     "${ROOT}/lib/app_controller/app_state.c")
-target_include_directories(models PUBLIC "${ROOT}/lib/app_config" "${ROOT}/lib/content" "${ROOT}/lib/text_utf8" "${ROOT}/lib/app_controller")
+target_include_directories(models PUBLIC "${ROOT}/lib/app_config" "${ROOT}/lib/content" "${ROOT}/lib/text_utf8" "${ROOT}/lib/app_controller" "${ROOT}/lib/ui_limits")
 target_link_libraries(models PUBLIC cjson m)
 target_compile_options(models PRIVATE -Wall -Wextra -Werror)
 if(ENABLE_SANITIZERS)
@@ -30,7 +30,7 @@ add_test(NAME models COMMAND test_models)
 add_executable(test_transport test_transport.c
     "${ROOT}/lib/http_transport/http_transport.c"
     "${ROOT}/lib/backend_client/backend_client.c")
-target_include_directories(test_transport PRIVATE stubs "${ROOT}/lib/http_transport" "${ROOT}/lib/backend_client")
+target_include_directories(test_transport PRIVATE stubs "${ROOT}/lib/http_transport" "${ROOT}/lib/backend_client" "${ROOT}/lib/ui_limits")
 target_compile_options(test_transport PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(test_transport PRIVATE models)
 add_test(NAME transport COMMAND test_transport)

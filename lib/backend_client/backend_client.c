@@ -1,13 +1,20 @@
 #include "backend_client.h"
+#include "ui_limits.h"
 #include <cJSON.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 net_result_t backend_client_next(const app_config_t *config, content_item_t *out)
 {
-    char url[CONTENT_URL_MAX];
+    char base[CONTENT_URL_MAX];
+    char url[CONTENT_URL_MAX + 16];
     net_result_t result = {.error = ESP_ERR_INVALID_ARG};
-    if (!config_model_next_url(config, url, sizeof(url))) return result;
+    if (!config_model_next_url(config, base, sizeof(base))) return result;
+    // 告知后端本次可展示的行情条数；旧地址已有查询串时改用 &
+    int n = snprintf(url, sizeof(url), "%s%csize=%d", base,
+                     strchr(base, '?') ? '&' : '?', UI_STOCK_MAX);
+    if (n < 0 || (size_t)n >= sizeof(url)) return result;
     http_blob_t body;
     result = http_transport_get(url, config, 4096, 10000, &body);
     if (result.error != ESP_OK) return result;

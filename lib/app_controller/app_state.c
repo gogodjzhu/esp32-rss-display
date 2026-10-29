@@ -1,5 +1,6 @@
 #include "app_state.h"
-#define DISPLAY_MS 60000
+#include "ui_limits.h"
+#define DISPLAY_MS UI_DISPLAY_MS
 #define DOUBLE_CLICK_MS 400
 #define RATING_IDLE_MS 5000
 #define FEEDBACK_MS 1000

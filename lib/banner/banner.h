@@ -1,8 +1,9 @@
 #ifndef BANNER_H
 #define BANNER_H
 #include <stdint.h>
+#include "ui_limits.h"
 
-#define BANNER_STOCK_MAX 3
+#define BANNER_STOCK_MAX UI_STOCK_MAX
 
 /* 一行行情中的单个标的；change_bp 以 0.01% 为单位，正数上涨、负数下跌 */
 typedef struct {

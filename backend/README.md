@@ -14,3 +14,8 @@ curl -X POST -H 'Content-Type: application/json' \
      http://localhost:8080/v1/item/1/rating
 curl http://localhost:8080/nfc/dev-demo
 curl http://localhost:8080/metrics
+
+# 行情栏：config.yaml 的 stocks.symbols 填腾讯行情编号（sh/sz/bj/hk/us 前缀），
+# 后端每 refresh_seconds 秒拉取一次并缓存全部行情；next 的 size 参数指定本次
+# 返回条数（缺省 3），后端按设备轮换窗口。name 可覆盖数据源名称。
+curl -s 'http://localhost:8080/v1/device/dev-demo/next?size=6' | jq .stocks

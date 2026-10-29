@@ -1,5 +1,6 @@
 #include "http_transport.h"
 #include "backend_client.h"
+#include "ui_limits.h"
 #include <esp_http_client.h>
 #include <assert.h>
 #include <stdio.h>
@@ -127,7 +128,9 @@ int main(void)
     response(json, strlen(json), strlen(json), 200, true);
     content_item_t item;
     assert(backend_client_next(&config, &item).error == ESP_OK && item.id == 42);
-    assert(!strcmp(last_url, "http://backend/v1/device/device-01/next") && credentials == 1);
+    char want_url[128];
+    snprintf(want_url, sizeof(want_url), "http://backend/v1/device/device-01/next?size=%d", UI_STOCK_MAX);
+    assert(!strcmp(last_url, want_url) && credentials == 1);
     const char embedded[] = "{\"title\":\"x\"}\0trailing";
     response(embedded, sizeof(embedded) - 1, sizeof(embedded) - 1, 200, true);
     assert(backend_client_next(&config, &item).error == ESP_ERR_INVALID_RESPONSE);

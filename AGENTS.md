@@ -28,6 +28,8 @@ pio run --target clean           # 清理
 
 **入口：** `src/main.cpp` — `extern "C" void app_main()`。`lib/` 下所有库模块均为纯 C，带 `extern "C"` 守卫。
 
+**显示预算：** `lib/ui_limits/ui_limits.h` 是唯一来源，按内容展示时长和行情滚动节奏推导行情条数，并同步 JSON 解析上限、banner 字型表和 next 的 `size` 参数；当前为 20 条。需要省 RAM 时只改 `UI_STOCK_LIMIT`。
+
 **`sdkconfig.esp32s3`** 为自动生成文件，禁止手动编辑。`sdkconfig.defaults` 是已提交的配置基准。
 
 **构建边界：** `src/CMakeLists.txt` 显式注册入口、应用控制器和管理 API，`lib/*/CMakeLists.txt` 注册底层组件。关闭 PlatformIO LDF，避免重复编译；历史 `image_fetcher`、`rss_reader` 已删除，`lib/` 下只剩注册组件，`tools/check_firmware.py` 校验每个组件都真正进入构建。LVGL 位于唯一环境的 `.pio/libdeps/esp32s3/lvgl`，并校验版本。正式支持 PlatformIO 工作流；原生 `idf.py` 的资源生成和烧录尚未验收。
@@ -53,11 +55,13 @@ go mod tidy                                         # 同步依赖
 ```
 
 **API 接口：**
-- `GET /v1/device/{device_id}/next` — 获取设备的下一条 RSS 内容（返回稳定 `item_id`）
+- `GET /v1/device/{device_id}/next?size=N` — 获取设备的下一条 RSS 内容（返回稳定 `item_id`，并按 `size` 附带轮换的实时行情 `stocks`，缺省 3 条）
 - `POST /v1/item/{item_id}/rating` — 评分落库，同设备同条目覆盖为最新值，不推进 `current_item_id`
 - `GET /nfc/{device_id}` — 重定向到当前条目的原始 URL
 - `GET /metrics` — Prometheus 监控指标
 - `GET /image/{id}.jpg` — 渲染图片（默认从 `data/images/` 目录提供）
+
+**行情：** `config.yaml` 的 `stocks.symbols` 使用腾讯行情编号（`sh`/`sz`/`bj`/`hk`/`us` 前缀），后台按 `refresh_seconds`（默认 30 秒，最小 5 秒）拉取并缓存全部行情；next 按 `size`（缺省 3，最大 32）返回该设备的轮换窗口，拉取失败保留上一份，未配置或无数据时省略 `stocks` 字段。
 
 **数据库：** 默认使用 SQLite，路径为 `/tmp/data/rss.db`（重启后不保留）。也支持通过 `config.yaml` 配置 `database.driver: mysql` 使用 MySQL。每次启动时执行 GORM AutoMigrate。
 

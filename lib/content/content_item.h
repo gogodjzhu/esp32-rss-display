@@ -3,13 +3,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "ui_limits.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 #define CONTENT_TITLE_MAX 384
 #define CONTENT_TIME_MAX 32
 #define CONTENT_URL_MAX 512
-#define CONTENT_STOCK_MAX 3
+#define CONTENT_STOCK_MAX UI_STOCK_MAX
 #define CONTENT_STOCK_NAME_MAX 32
 
 /* 行情涨跌以 0.01% 为单位，正数上涨、负数下跌，避免浮点比较误差 */
@@ -28,7 +29,8 @@ typedef struct {
 } content_item_t;
 
 /* 解析失败不改变调用方已有内容。
- * stocks 为可选装饰字段：非法条目逐条丢弃、超过 3 项截断，不影响内容本身。 */
+ * stocks 为可选装饰字段：非法条目逐条丢弃、超过 CONTENT_STOCK_MAX 项截断，
+ * 不影响内容本身。 */
 bool content_item_parse(const char *json, content_item_t *out);
 #ifdef __cplusplus
 }

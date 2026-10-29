@@ -221,11 +221,22 @@ static void test_stock_banner(void)
     assert(!strcmp(item.stocks[0].name, "B") && item.stocks[0].change_bp == 200);
     assert(!strcmp(item.stocks[1].name, "D") && item.stocks[1].change_bp == 300);
 
-    /* 超过 3 项按顺序截断，不视为协议错误 */
-    assert(content_item_parse("{\"item_id\":1,\"stocks\":["
-        "{\"name\":\"A\",\"change_pct\":1},{\"name\":\"B\",\"change_pct\":1},"
-        "{\"name\":\"C\",\"change_pct\":1},{\"name\":\"D\",\"change_pct\":1}]}", &item));
-    assert(item.stock_count == 3 && !strcmp(item.stocks[2].name, "C"));
+    /* 超过上限按顺序截断，不视为协议错误 */
+    char many[2048] = "{\"item_id\":1,\"stocks\":[";
+    size_t off = strlen(many);
+    for (int i = 0; i <= CONTENT_STOCK_MAX; i++) {
+        int n = snprintf(many + off, sizeof(many) - off,
+                         "%s{\"name\":\"S%d\",\"change_pct\":1}", i ? "," : "", i);
+        assert(n > 0 && (size_t)n < sizeof(many) - off);
+        off += (size_t)n;
+    }
+    assert(off + 3 <= sizeof(many));
+    strcpy(many + off, "]}");
+    assert(content_item_parse(many, &item));
+    char last[16];
+    snprintf(last, sizeof(last), "S%d", CONTENT_STOCK_MAX - 1);
+    assert(item.stock_count == CONTENT_STOCK_MAX);
+    assert(!strcmp(item.stocks[CONTENT_STOCK_MAX - 1].name, last));
 
     /* 名称超过存储上限时按完整码点截断，不留下半个 UTF-8 字符 */
     assert(content_item_parse("{\"item_id\":1,\"stocks\":["
