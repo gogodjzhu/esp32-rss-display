@@ -21,6 +21,11 @@ type Feed struct {
 	URL       string    `gorm:"column:url" json:"url"`
 	Enabled   bool      `gorm:"column:enabled" json:"enabled"`
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+	// 抓取健康状态：成功时刷新 LastSuccessAt 并清空 LastError，
+	// 失败时记录 LastError 与 LastErrorAt，供 /admin/status 展示。
+	LastSuccessAt *time.Time `gorm:"column:last_success_at" json:"last_success_at"`
+	LastErrorAt   *time.Time `gorm:"column:last_error_at" json:"last_error_at"`
+	LastError     string     `gorm:"column:last_error" json:"last_error"`
 }
 
 func (Feed) TableName() string {
@@ -51,4 +56,18 @@ type ItemRating struct {
 
 func (ItemRating) TableName() string {
 	return "item_ratings"
+}
+
+// DeviceItemView 记录某台设备展示过哪些条目，是 next 曝光模型的依据：
+// 未看过的条目优先，全部看过之后按最久未展示轮换。
+type DeviceItemView struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	DeviceID    string    `gorm:"column:device_id;uniqueIndex:uk_view_device_item,priority:1" json:"device_id"`
+	ItemID      uint      `gorm:"column:item_id;uniqueIndex:uk_view_device_item,priority:2;index" json:"item_id"`
+	LastShownAt time.Time `gorm:"column:last_shown_at;index" json:"last_shown_at"`
+	ShowCount   int       `gorm:"column:show_count" json:"show_count"`
+}
+
+func (DeviceItemView) TableName() string {
+	return "device_item_views"
 }

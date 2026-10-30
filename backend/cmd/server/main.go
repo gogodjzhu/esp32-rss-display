@@ -53,6 +53,7 @@ func runServer(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
+	api.SetImageDir(imageDir)
 	initFeeds(cfg.Feeds)
 
 	mux := http.NewServeMux()
@@ -60,7 +61,12 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("GET /v1/device/{device_id}/next", api.GetNextItem)
 	mux.HandleFunc("POST /v1/item/{item_id}/rating", api.RateItem)
-	image.Mount(mux)
+	mux.HandleFunc("GET /v1/feeds", api.ListFeeds)
+	mux.HandleFunc("POST /v1/feeds", api.CreateFeed)
+	mux.HandleFunc("PATCH /v1/feeds/{id}", api.UpdateFeed)
+	mux.HandleFunc("DELETE /v1/feeds/{id}", api.DeleteFeed)
+	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
+	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -91,17 +97,28 @@ func runServer(cmd *cobra.Command, args []string) {
 	log.Println("Server stopped")
 }
 
+// initFeeds 把配置里的订阅源作为种子写入数据库：不存在则创建，已存在则
+// 同步名称与启用状态（URL 是身份标识，不做修改）。
 func initFeeds(feeds []config.FeedConfig) {
 	db := database.GetDB()
 
 	for _, f := range feeds {
 		var existing models.Feed
-		if err := db.Where("url = ?", f.URL).First(&existing).Error; err != nil {
-			db.Create(&models.Feed{
-				Name:    f.Name,
-				URL:     f.URL,
-				Enabled: f.Enabled,
-			})
+		if err := db.Where("url = ?", f.URL).First(&existing).Error; err == nil {
+			if err := db.Model(&existing).Updates(map[string]any{
+				"name":    f.Name,
+				"enabled": f.Enabled,
+			}).Error; err != nil {
+				log.Printf("同步订阅源 %s 失败: %v", f.Name, err)
+			}
+			continue
+		}
+		if err := db.Create(&models.Feed{
+			Name:    f.Name,
+			URL:     f.URL,
+			Enabled: f.Enabled,
+		}).Error; err != nil {
+			log.Printf("创建订阅源 %s 失败: %v", f.Name, err)
 		}
 	}
 }

@@ -19,3 +19,22 @@ curl http://localhost:8080/metrics
 # 后端每 refresh_seconds 秒拉取一次并缓存全部行情；next 的 size 参数指定本次
 # 返回条数（缺省 3），后端按设备轮换窗口。name 可覆盖数据源名称。
 curl -s 'http://localhost:8080/v1/device/dev-demo/next?size=6' | jq .stocks
+
+# 订阅源管理：config.yaml 只做首次种子，日常增删改走接口（下一轮抓取生效）
+curl -s http://localhost:8080/v1/feeds
+curl -s -X POST -H 'Content-Type: application/json' \
+     -d '{"name":"HN","url":"https://news.ycombinator.com/rss"}' \
+     http://localhost:8080/v1/feeds
+curl -s -X PATCH -H 'Content-Type: application/json' \
+     -d '{"enabled":false}' http://localhost:8080/v1/feeds/1
+curl -s -X DELETE http://localhost:8080/v1/feeds/1
+
+# 运行状态：每个源最近成功/失败、今日条数，条目与设备规模、图片目录占用
+curl -s http://localhost:8080/admin/status | jq .
+
+# 轮播与保留策略
+# - next 不再按 id 递增游标取内容，而是按 device_item_views 的曝光记录：
+#   未看过的条目优先（发布时间倒序），全部看过之后取最久未展示的一条。
+# - rss.max_age_hours（默认 72）之外的内容不参与轮播，并由每日清理任务删除；
+#   清理同时回收没有任何条目引用的图片文件。
+# - 图片存相对路径（按内容哈希命名），同一张图只落一份。

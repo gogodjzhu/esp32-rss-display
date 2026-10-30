@@ -2,7 +2,9 @@ package rssworker
 
 import (
 	"bytes"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"image"
 	"image/jpeg"
 	_ "image/png"
@@ -25,11 +27,32 @@ import (
 	"golang.org/x/net/html"
 )
 
+// 网络请求统一带超时：一个慢响应不能卡住整个抓取循环。
+var (
+	feedHTTPClient  = &http.Client{Timeout: 20 * time.Second}
+	imageHTTPClient = &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return errors.New("重定向次数过多")
+			}
+			return nil
+		},
+	}
+)
+
+const (
+	imageMaxBody   = 5 << 20        // 单张图片最大下载 5 MB
+	cleanupPeriod  = 24 * time.Hour // 保留策略的执行周期
+	imageUserAgent = "Mozilla/5.0 (compatible; RSS-Bot/1.0; esp32-rss-display)"
+)
+
 type Worker struct {
 	fetchInterval time.Duration
 	imageWidth    int
 	imageHeight   int
 	imageDir      string
+	useCatmullRom bool
 	stopCh        chan struct{}
 }
 
@@ -39,6 +62,7 @@ func New(cfg *config.RSSConfig, imageDir string) *Worker {
 		imageWidth:    cfg.ImageWidth,
 		imageHeight:   cfg.ImageHeight,
 		imageDir:      imageDir,
+		useCatmullRom: cfg.UseCatmullRom(),
 		stopCh:        make(chan struct{}),
 	}
 }
@@ -54,16 +78,29 @@ func (w *Worker) Stop() {
 func (w *Worker) run() {
 	w.backfillImages()
 	w.fetchAllFeeds()
+	w.cleanup()
+
 	ticker := time.NewTicker(w.fetchInterval)
 	defer ticker.Stop()
+	cleanupTicker := time.NewTicker(cleanupPeriod)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			w.fetchAllFeeds()
+		case <-cleanupTicker.C:
+			w.cleanup()
 		case <-w.stopCh:
 			return
 		}
+	}
+}
+
+// cleanup 按保留时长清理过期条目并回收孤儿图片。
+func (w *Worker) cleanup() {
+	if _, _, err := database.Cleanup(config.MaxAge(), w.imageDir); err != nil {
+		log.Printf("[cleanup] 失败: %v", err)
 	}
 }
 
@@ -118,12 +155,15 @@ func (w *Worker) fetchFeed(feed models.Feed) {
 	metrics.RSSFetchTotal.Add(1)
 
 	parser := gofeed.NewParser()
+	parser.Client = feedHTTPClient
 	parsed, err := parser.ParseURL(feed.URL)
 	if err != nil {
 		log.Printf("Error parsing feed %s: %v", feed.Name, err)
 		metrics.RSSFetchError.Add(1)
+		w.markFeedError(feed.ID, err)
 		return
 	}
+	w.markFeedOK(feed.ID)
 
 	db := database.GetDB()
 
@@ -145,6 +185,10 @@ func (w *Worker) fetchFeed(feed models.Feed) {
 		var publishedAt *time.Time
 		if item.PublishedParsed != nil {
 			t := *item.PublishedParsed
+			// 未来时间会永久霸占队首，入库前统一夹到当前时间
+			if now := time.Now(); t.After(now) {
+				t = now
+			}
 			publishedAt = &t
 		}
 
@@ -171,15 +215,39 @@ func (w *Worker) fetchFeed(feed models.Feed) {
 	}
 }
 
-// downloadAndResizeImage downloads the image at url, resizes it to the
-// configured dimensions, and saves it under a YYYYMMDD sub-directory derived
-// from date. Returns the full filesystem path on success, or "" on failure.
+// markFeedOK/markFeedError 维护订阅源的健康状态，供 /admin/status 展示。
+func (w *Worker) markFeedOK(feedID uint) {
+	now := time.Now()
+	if err := database.GetDB().Model(&models.Feed{}).Where("id = ?", feedID).
+		Updates(map[string]any{"last_success_at": now, "last_error": ""}).Error; err != nil {
+		log.Printf("[feed] 更新成功状态失败 feed=%d: %v", feedID, err)
+	}
+}
+
+func (w *Worker) markFeedError(feedID uint, err error) {
+	now := time.Now()
+	if uerr := database.GetDB().Model(&models.Feed{}).Where("id = ?", feedID).
+		Updates(map[string]any{"last_error_at": now, "last_error": err.Error()}).Error; uerr != nil {
+		log.Printf("[feed] 更新失败状态失败 feed=%d: %v", feedID, uerr)
+	}
+}
+
+// downloadAndResizeImage 下载图片、居中裁剪到目标比例后缩放，并以内容哈希
+// 命名落盘。返回相对 imageDir 的路径，未取到图片时返回空串。
 func (w *Worker) downloadAndResizeImage(url string, date time.Time) string {
 	if url == "" {
 		return ""
 	}
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ""
+	}
+	// 部分图站会校验 UA/Referer，补上后能救回一批 403 条目
+	req.Header.Set("User-Agent", imageUserAgent)
+	req.Header.Set("Referer", url)
+
+	resp, err := imageHTTPClient.Do(req)
 	if err != nil {
 		return ""
 	}
@@ -189,36 +257,78 @@ func (w *Worker) downloadAndResizeImage(url string, date time.Time) string {
 		return ""
 	}
 
-	img, format, err := image.Decode(resp.Body)
+	img, format, err := image.Decode(io.LimitReader(resp.Body, imageMaxBody))
 	if err != nil {
 		return ""
 	}
-
 	if format != "jpeg" && format != "png" {
 		return ""
 	}
 
-	resized := image.NewRGBA(image.Rect(0, 0, w.imageWidth, w.imageHeight))
-	draw.NearestNeighbor.Scale(resized, resized.Bounds(), img, img.Bounds(), draw.Over, nil)
+	resized := w.resizeCenterCrop(img, w.imageWidth, w.imageHeight)
 
 	var buf bytes.Buffer
-	encoder := jpeg.Options{Quality: 80}
-	if err := jpeg.Encode(&buf, resized, &encoder); err != nil {
+	if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: 80}); err != nil {
 		return ""
 	}
 
-	dateDir := filepath.Join(w.imageDir, date.UTC().Format("20060102"))
-	if err := os.MkdirAll(dateDir, 0755); err != nil {
+	// 内容哈希命名：同一张图被多个条目引用时只落一份
+	sum := sha256.Sum256(buf.Bytes())
+	name := hex.EncodeToString(sum[:8]) + ".jpg"
+
+	dateDir := date.UTC().Format("20060102")
+	dir := filepath.Join(w.imageDir, dateDir)
+	relPath := filepath.Join(dateDir, name)
+	absPath := filepath.Join(w.imageDir, relPath)
+
+	if _, err := os.Stat(absPath); err == nil {
+		return relPath
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
 		return ""
 	}
-
-	id := fmt.Sprintf("%d", time.Now().UnixNano())
-	filename := filepath.Join(dateDir, id+".jpg")
-	if err := os.WriteFile(filename, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(absPath, buf.Bytes(), 0644); err != nil {
 		return ""
 	}
+	return relPath
+}
 
-	return filename
+// resizeCenterCrop 按目标宽高比居中裁剪后缩放到目标尺寸，避免比例失真。
+func (w *Worker) resizeCenterCrop(src image.Image, width, height int) image.Image {
+	b := src.Bounds()
+	srcW, srcH := b.Dx(), b.Dy()
+	dstBounds := image.Rect(0, 0, width, height)
+	dst := image.NewRGBA(dstBounds)
+	if srcW == 0 || srcH == 0 {
+		return dst
+	}
+
+	srcAR := float64(srcW) / float64(srcH)
+	dstAR := float64(width) / float64(height)
+
+	crop := b
+	if srcAR > dstAR {
+		cropW := int(float64(srcH) * dstAR)
+		if cropW > srcW {
+			cropW = srcW
+		}
+		x0 := b.Min.X + (srcW-cropW)/2
+		crop = image.Rect(x0, b.Min.Y, x0+cropW, b.Max.Y)
+	} else if srcAR < dstAR {
+		cropH := int(float64(srcW) / dstAR)
+		if cropH > srcH {
+			cropH = srcH
+		}
+		y0 := b.Min.Y + (srcH-cropH)/2
+		crop = image.Rect(b.Min.X, y0, b.Max.X, y0+cropH)
+	}
+
+	if w.useCatmullRom {
+		draw.CatmullRom.Scale(dst, dstBounds, src, crop, draw.Over, nil)
+	} else {
+		draw.NearestNeighbor.Scale(dst, dstBounds, src, crop, draw.Over, nil)
+	}
+	return dst
 }
 
 func (w *Worker) extractImage(item *gofeed.Item) string {
@@ -477,9 +587,9 @@ func (w *Worker) extractFromWebPage(url string) string {
 	if err != nil {
 		return ""
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; RSS-Bot/1.0)")
+	req.Header.Set("User-Agent", imageUserAgent)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := feedHTTPClient.Do(req)
 	if err != nil {
 		return ""
 	}

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/esp32-rss-display/backend/server/config"
 	"github.com/esp32-rss-display/backend/server/database"
@@ -34,7 +35,9 @@ func setupTestDB(t *testing.T) {
 	if err := db.Create(&feed).Error; err != nil {
 		t.Fatalf("seed feed: %v", err)
 	}
-	item := models.Item{FeedID: feed.ID, Title: "t", URL: "http://feed.example/1", ImagePath: "1.jpg"}
+	// 用很久以前的发布时间，避免参与曝光模型的 max_age 窗口，干扰其它用例
+	old := time.Now().Add(-200 * time.Hour)
+	item := models.Item{FeedID: feed.ID, Title: "t", URL: "http://feed.example/1", ImagePath: "1.jpg", PublishedAt: &old}
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatalf("seed item: %v", err)
 	}

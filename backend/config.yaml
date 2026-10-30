@@ -1,6 +1,6 @@
 database:
   driver: sqlite
-  dsn: /tmp/data/rss.db
+  dsn: data/rss.db
 
 server:
   host: 0.0.0.0
@@ -10,6 +10,10 @@ rss:
   fetch_interval_minutes: 15
   image_width: 320
   image_height: 240
+  # max_age_hours 为条目最大保留时长：超过此时间的条目不被 next 返回且可被清理
+  max_age_hours: 72
+  # image_resize_filter: 可选 "catmullrom"（默认，画质好）或 "nearest"
+  image_resize_filter: catmullrom
 
 # next 响应附带的行情栏；每次返回的条数由设备 next 的 size 参数决定
 # 编号格式：sh/sz/bj 为 A 股与指数，hk 为港股，us 为美股
