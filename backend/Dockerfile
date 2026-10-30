@@ -3,12 +3,12 @@ FROM golang:1.24-alpine AS builder
 WORKDIR /src
 
 # 仅拷贝依赖描述文件，利用 Docker 缓存
-COPY go.mod go.sum ./
+COPY backend/go.mod backend/go.sum ./
 RUN mkdir -p cmd/server && touch cmd/server/main.go
 RUN CGO_ENABLED=0 go build -o /dev/null ./cmd/server 2>/dev/null; true
 
 # 拷贝完整源码并编译
-COPY . .
+COPY backend/ .
 RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server
 
 FROM alpine:latest
