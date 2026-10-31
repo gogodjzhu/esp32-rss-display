@@ -32,6 +32,13 @@ curl -s -X DELETE http://localhost:8080/v1/feeds/1
 # 运行状态：每个源最近成功/失败、今日条数，条目与设备规模、图片目录占用
 curl -s http://localhost:8080/admin/status | jq .
 
+# 管理页面：浏览器打开 http://localhost:8080/admin/
+# - 订阅源 tab 合并 /v1/feeds 与 /admin/status，支持新增、行内编辑、启用/停用、删除
+# - 运行状态 tab 展示条目/设备/图片/数据库规模与每个源的健康度
+# - 静态资源通过 go:embed 打进二进制，构建与部署不需要额外文件
+# - 应用内不做鉴权：生产环境由 Caddy 对 /admin/* 与 /v1/feeds* 加 basic_auth
+# 订阅源改动在下一轮抓取生效；config.yaml 只做首次种子，不再覆盖已有源的名称与启用状态
+
 # 轮播与保留策略
 # - next 不再按 id 递增游标取内容，而是按 device_item_views 的曝光记录：
 #   未看过的条目优先（发布时间倒序），全部看过之后取最久未展示的一条。

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/esp32-rss-display/backend/server/admin"
 	"github.com/esp32-rss-display/backend/server/api"
 	"github.com/esp32-rss-display/backend/server/config"
 	"github.com/esp32-rss-display/backend/server/database"
@@ -66,6 +67,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.HandleFunc("PATCH /v1/feeds/{id}", api.UpdateFeed)
 	mux.HandleFunc("DELETE /v1/feeds/{id}", api.DeleteFeed)
 	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
+	admin.Mount(mux)
 	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)
 
@@ -97,20 +99,14 @@ func runServer(cmd *cobra.Command, args []string) {
 	log.Println("Server stopped")
 }
 
-// initFeeds 把配置里的订阅源作为种子写入数据库：不存在则创建，已存在则
-// 同步名称与启用状态（URL 是身份标识，不做修改）。
+// initFeeds 把配置里的订阅源作为首次种子写入数据库：仅当 URL 不存在时插入。
+// 已存在的源不再被 config.yaml 覆盖——页面上的改名、禁用必须能活过重启。
 func initFeeds(feeds []config.FeedConfig) {
 	db := database.GetDB()
 
 	for _, f := range feeds {
 		var existing models.Feed
 		if err := db.Where("url = ?", f.URL).First(&existing).Error; err == nil {
-			if err := db.Model(&existing).Updates(map[string]any{
-				"name":    f.Name,
-				"enabled": f.Enabled,
-			}).Error; err != nil {
-				log.Printf("同步订阅源 %s 失败: %v", f.Name, err)
-			}
 			continue
 		}
 		if err := db.Create(&models.Feed{
