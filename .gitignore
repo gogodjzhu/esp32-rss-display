@@ -4,6 +4,7 @@ venv
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+.claude
 sdkconfig.*
 !sdkconfig.defaults
 !test/host/stubs/sdkconfig.h
