@@ -52,6 +52,30 @@ static void parse_stocks(const cJSON *root, content_item_t *item)
     item->stock_count = (uint8_t)count;
 }
 
+/* 新鲜度是可选字段：缺失或非法时按默认值（0/未知）处理，不影响内容本身 */
+static void parse_freshness(const cJSON *root, content_item_t *item)
+{
+    const cJSON *age = cJSON_GetObjectItemCaseSensitive(root, "age_sec");
+    const cJSON *oc  = cJSON_GetObjectItemCaseSensitive(root, "open_count");
+    if (cJSON_IsNumber(age) && isfinite(age->valuedouble)) {
+        double v = age->valuedouble;
+        if (v < 0) {
+            item->age_sec = 0;
+        } else if (v > (double)INT64_MAX) {
+            item->age_sec = INT64_MAX;
+        } else {
+            item->age_sec = (int64_t)v;
+        }
+        item->freshness_known = true;
+    }
+    if (cJSON_IsNumber(oc) && isfinite(oc->valuedouble) && oc->valuedouble > 0) {
+        item->open_count = oc->valuedouble >= (double)UINT8_MAX
+            ? UINT8_MAX : (uint8_t)oc->valuedouble;
+        item->freshness_known = true;
+    }
+    /* 两个字段都缺失时 freshness_known 保持 false */
+}
+
 bool content_item_parse(const char *json, content_item_t *out)
 {
     if (!json || !out) return false;
@@ -69,6 +93,7 @@ bool content_item_parse(const char *json, content_item_t *out)
             && copy_field(root, "image_url", item.image_url, sizeof(item.image_url))
             && (!item.image_url[0] || config_model_http_url(item.image_url));
         if (valid) parse_stocks(root, &item);
+        if (valid) parse_freshness(root, &item);
     }
     cJSON_Delete(root);
     if (valid) *out = item;

@@ -207,6 +207,9 @@ func DeleteFeed(w http.ResponseWriter, r *http.Request) {
 			if err := tx.Where("item_id IN ?", ids).Delete(&models.ItemRating{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("item_id IN ?", ids).Delete(&models.ItemNfcOpen{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("id IN ?", ids).Delete(&models.Item{}).Error; err != nil {
 				return err
 			}

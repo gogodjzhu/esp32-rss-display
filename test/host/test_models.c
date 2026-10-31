@@ -293,6 +293,30 @@ static void test_content(void)
     assert(content_item_parse("{\"item_id\":4294967295}", &item) && item.id == UINT32_MAX);
 }
 
+static void test_freshness(void)
+{
+    content_item_t item;
+
+    /* 正常下发：age_sec 与 open_count 都被解析 */
+    assert(content_item_parse("{\"item_id\":1,\"title\":\"t\",\"image_url\":null,\"published_at\":\"\","
+                              "\"age_sec\":10801,\"open_count\":2}", &item));
+    assert(item.freshness_known == true && item.age_sec == 10801 && item.open_count == 2);
+
+    /* 缺失字段：freshness_known 为假，值回退默认 */
+    assert(content_item_parse("{\"item_id\":1,\"title\":\"t\",\"image_url\":null}", &item));
+    assert(item.freshness_known == false && item.age_sec == 0 && item.open_count == 0);
+
+    /* 只给 age_sec：打开次数默认 0，但仍视为已知新鲜度 */
+    assert(content_item_parse("{\"item_id\":1,\"age_sec\":3600}", &item));
+    assert(item.freshness_known == true && item.age_sec == 3600 && item.open_count == 0);
+
+    /* 非法值容错：不失败、按默认处理 */
+    assert(content_item_parse("{\"item_id\":1,\"age_sec\":\"x\",\"open_count\":-3}", &item));
+    assert(item.freshness_known == false && item.age_sec == 0 && item.open_count == 0);
+    assert(content_item_parse("{\"item_id\":1,\"age_sec\":-5}", &item));
+    assert(item.freshness_known == true && item.age_sec == 0);   /* 负值钳制为 0 */
+}
+
 int main(void)
 {
     test_gestures();
@@ -302,8 +326,9 @@ int main(void)
     test_device_id();
     test_config();
     test_content();
+    test_freshness();
     test_text_utf8();
     test_stock_banner();
-    puts("PASS: gestures, rating, clocks, migration, device identity, configuration, content, UTF-8 text, stock banner");
+    puts("PASS: gestures, rating, clocks, migration, device identity, configuration, content, freshness, UTF-8 text, stock banner");
     return 0;
 }

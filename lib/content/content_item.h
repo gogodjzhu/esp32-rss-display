@@ -24,6 +24,11 @@ typedef struct {
     char title[CONTENT_TITLE_MAX];
     char published_at[CONTENT_TIME_MAX];
     char image_url[CONTENT_URL_MAX];
+    /* 新鲜度：由后端在 next 响应中计算好下发（设备无时钟）。
+     * freshness_known 为假（旧后端 / 字段缺失）时首行按绝对时间显示、不画圆点。 */
+    bool    freshness_known;
+    int64_t age_sec;    /* 已发布秒数，>= 0；缺失按 0（最新） */
+    uint8_t open_count; /* NFC 打开次数，缺失按 0 */
     content_stock_t stocks[CONTENT_STOCK_MAX];
     uint8_t stock_count;
 } content_item_t;

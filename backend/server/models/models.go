@@ -71,3 +71,18 @@ type DeviceItemView struct {
 func (DeviceItemView) TableName() string {
 	return "device_item_views"
 }
+
+// ItemNfcOpen 记录某台设备对某条目的 NFC 打开次数，作为标题浮层新鲜度的依据：
+// 0 次绿色、1 次黄色、>=2 次红色；与条目的发布年龄取较旧一档。
+type ItemNfcOpen struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	ItemID      uint      `gorm:"column:item_id;uniqueIndex:uk_nfc_open_item_device,priority:1" json:"item_id"`
+	DeviceID    string    `gorm:"column:device_id;uniqueIndex:uk_nfc_open_item_device,priority:2;index" json:"device_id"`
+	OpenCount   int       `gorm:"column:open_count" json:"open_count"`
+	FirstOpenAt time.Time `gorm:"column:first_open_at" json:"first_open_at"`
+	LastOpenAt  time.Time `gorm:"column:last_open_at;index" json:"last_open_at"`
+}
+
+func (ItemNfcOpen) TableName() string {
+	return "item_nfc_opens"
+}

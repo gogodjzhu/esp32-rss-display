@@ -27,10 +27,13 @@ static void build_banner(const content_item_t *item, banner_content_t *content,
     }
 
     *content = (banner_content_t){
-        .time        = item->published_at,
-        .title       = item->title,
-        .stocks      = stocks,
-        .stock_count = count,
+        .time          = item->published_at,
+        .title         = item->title,
+        .stocks        = stocks,
+        .stock_count   = count,
+        .has_freshness = item->freshness_known,
+        .age_sec       = item->age_sec,
+        .open_count    = item->open_count,
     };
 }
 

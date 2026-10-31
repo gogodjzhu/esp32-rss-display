@@ -49,6 +49,7 @@ func Init(cfg *config.DatabaseConfig) error {
 		&models.Item{},
 		&models.ItemRating{},
 		&models.DeviceItemView{},
+		&models.ItemNfcOpen{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
@@ -126,6 +127,9 @@ func Cleanup(maxAge time.Duration, imageDir string) (int64, int, error) {
 				return err
 			}
 			if err := tx.Where("item_id IN ?", ids).Delete(&models.ItemRating{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("item_id IN ?", ids).Delete(&models.ItemNfcOpen{}).Error; err != nil {
 				return err
 			}
 			res := tx.Where("id IN ?", ids).Delete(&models.Item{})

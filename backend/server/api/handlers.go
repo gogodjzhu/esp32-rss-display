@@ -34,6 +34,11 @@ type NextItemResponse struct {
 	// PublishedAt 为条目发布时间的本地时区展示字符串（YYYY-MM-DD HH:MM），
 	// 供设备端在标题浮层首行显示；无发布时间时回退为入库时间。
 	PublishedAt string `json:"published_at"`
+	// AgeSec 为条目的已发布秒数（服务端相对 now 计算，设备没有时钟）；
+	// 设备据此分档显示新鲜度颜色与相对时间文案。
+	AgeSec int64 `json:"age_sec"`
+	// OpenCount 为本设备对该条目的 NFC 打开次数，0 表示从未打开。
+	OpenCount int `json:"open_count"`
 	// Stocks 为按设备轮换的行情窗口；没有可用行情时省略该字段。
 	Stocks []stocks.Quote `json:"stocks,omitempty"`
 }
@@ -109,6 +114,19 @@ func recordView(db *gorm.DB, deviceID string, itemID uint, now time.Time) {
 	}
 }
 
+// itemPubTime 返回条目的发布时间（缺失回退入库时间）；未来时间钳制为 now，
+// 保证由此计算的 age_sec 永远 >= 0。
+func itemPubTime(item *models.Item, now time.Time) time.Time {
+	pubTime := item.CreatedAt
+	if item.PublishedAt != nil {
+		pubTime = *item.PublishedAt
+	}
+	if pubTime.After(now) {
+		pubTime = now
+	}
+	return pubTime
+}
+
 func GetNextItem(w http.ResponseWriter, r *http.Request) {
 	deviceID := r.PathValue("device_id")
 	if deviceID == "" {
@@ -165,12 +183,14 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 发布时间的展示字符串：优先使用 feed 的发布时间，缺失时回退为入库时间
-	pubTime := item.CreatedAt
-	if item.PublishedAt != nil {
-		pubTime = *item.PublishedAt
-	}
-	if pubTime.After(now) {
-		pubTime = now
+	pubTime := itemPubTime(item, now)
+
+	// NFC 打开次数：缺失行按 0 处理；查询失败降级为 0，不影响本次展示
+	var openCount int
+	if err := db.Model(&models.ItemNfcOpen{}).
+		Where("item_id = ? AND device_id = ?", item.ID, deviceID).
+		Pluck("open_count", &openCount).Error; err != nil {
+		log.Printf("[next] 查询 NFC 打开次数失败 device=%s item=%d: %v", deviceID, item.ID, err)
 	}
 
 	// 更新设备游标（NFC 跳转仍依赖 current_item_id）
@@ -186,6 +206,8 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 		ImageURL:    imageURL,
 		Source:      feed.Name,
 		PublishedAt: pubTime.Local().Format("2006-01-02 15:04"),
+		AgeSec:      int64(now.Sub(pubTime).Seconds()),
+		OpenCount:   openCount,
 	}
 	// 行情为可选装饰字段，缺失或拉取失败不影响内容本身
 	if StockQuotes != nil {

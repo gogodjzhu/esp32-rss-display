@@ -1,5 +1,6 @@
 #ifndef BANNER_H
 #define BANNER_H
+#include <stdbool.h>
 #include <stdint.h>
 #include "ui_limits.h"
 
@@ -16,6 +17,11 @@ typedef struct {
     const char         *title;       /* 右侧标题，可多行自动换行 */
     const banner_stock_t *stocks;    /* 左侧行情，逐条上下滚动 */
     int                 stock_count; /* 0 表示不显示行情栏 */
+    /* 新鲜度：服务端计算的秒数与 NFC 打开次数；has_freshness 为假时
+     * 首行仍显示 time 的绝对时间，不画圆点（旧后端兼容）。 */
+    bool    has_freshness;
+    int64_t age_sec;
+    uint8_t open_count;
 } banner_content_t;
 
 /* 字形和背景缓存归 UI 任务所有，禁止跨任务调用。

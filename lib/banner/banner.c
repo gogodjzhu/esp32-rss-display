@@ -52,6 +52,14 @@ static void banner_write_row(int x, int y, const uint16_t *pixels, int width)
 #define BANNER_STOCK_DOWN    0xF800   /* 红跌 */
 #define BANNER_STOCK_FLAT    0xFFFF
 
+/* 首行新鲜度圆点：半径 3px 实心圆盘，画在相对时间文本左侧 */
+#define BANNER_FRESH_DOT_D      7     /* 直径（像素） */
+#define BANNER_FRESH_DOT_GAP    6     /* 圆点与文字的间距 */
+#define BANNER_FRESH_TEXT_MAX   24    /* 相对时间文案缓冲 */
+#define BANNER_FRESH_GREEN      0x07E0 /* 新（与行情上涨同绿） */
+#define BANNER_FRESH_YELLOW     0xFEA0 /* 较旧（≈#FFD400） */
+#define BANNER_FRESH_RED        0xF800 /* 很旧 / 已多次打开（与行情下跌同红） */
+
 typedef struct {
     int16_t             x;       /* 屏幕 x（含左内边距） */
     int16_t             y_off;   /* 相对所在行顶部的 y 偏移 */
@@ -100,6 +108,23 @@ static bool            s_stock_scrolling  = false;
 static int64_t         s_stock_scroll_start_us = 0;
 static int64_t         s_stock_hold_start_us   = 0;
 
+/* 首行新鲜度圆点排版状态：本次排版是否画圆点、位置与颜色 */
+static bool            s_fresh_dot_active = false;
+static int             s_fresh_dot_x0     = 0;
+static int             s_fresh_dot_y_off  = 0;   /* 相对 line 0 顶部的 y */
+static uint16_t        s_fresh_dot_color  = 0;
+
+/* 7x7 实心圆 A8 位图：dx²+dy² <= r²（r=3）的像素 alpha 255，其余 0 */
+static const uint8_t s_fresh_dot_bmp[BANNER_FRESH_DOT_D * BANNER_FRESH_DOT_D] = {
+    0, 0, 255, 255, 255, 0, 0,
+    0, 255, 255, 255, 255, 255, 0,
+    255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255,
+    0, 255, 255, 255, 255, 255, 0,
+    0, 0, 255, 255, 255, 0, 0,
+};
+
 /* 将 uint16 RGB565 在字节序与大端之间互换（与 banner_write_row 的约定一致） */
 static inline uint16_t swap16(uint16_t v)
 {
@@ -145,6 +170,7 @@ void banner_release(void)
     s_stock_cur          = 0;
     s_stock_scroll       = 0;
     s_stock_scrolling    = false;
+    s_fresh_dot_active   = false;
 }
 
 /* 取一个字形位图并记录到 banner 字形表；颜色为未交换字节序的 RGB565 */
@@ -213,6 +239,40 @@ static uint16_t banner_stock_color(int32_t bp)
     if (bp > 0) return BANNER_STOCK_UP;     /* 绿涨 */
     if (bp < 0) return BANNER_STOCK_DOWN;   /* 红跌 */
     return BANNER_STOCK_FLAT;
+}
+
+/* 相对时间文案：刚刚 / N分钟前 / N小时前 / N天前；天数超 9999 截断防溢出 */
+static void banner_format_age(int64_t age_sec, char *out, size_t size)
+{
+    if (age_sec < 60) {
+        snprintf(out, size, "刚刚");
+    } else if (age_sec < 3600) {
+        snprintf(out, size, "%d分钟前", (int)(age_sec / 60));
+    } else if (age_sec < 86400) {
+        snprintf(out, size, "%d小时前", (int)(age_sec / 3600));
+    } else {
+        int64_t days = age_sec / 86400;
+        if (days > 9999) days = 9999;
+        snprintf(out, size, "%d天前", (int)days);
+    }
+}
+
+/* 新鲜度分档：年龄 <6h→0、6–48h→1、>48h→2；打开 0→0、1→1、>=2→2；
+ * 最终取两者较旧的一档（max）——被 NFC 打开过的新闻新鲜度下降。 */
+static int banner_freshness_tier(int64_t age_sec, uint8_t open_count)
+{
+    int age_tier  = (age_sec >= 48 * 3600) ? 2 : (age_sec >= 6 * 3600) ? 1 : 0;
+    int open_tier = open_count >= 2 ? 2 : (open_count == 1 ? 1 : 0);
+    return age_tier > open_tier ? age_tier : open_tier;
+}
+
+static uint16_t banner_freshness_color(int tier)
+{
+    switch (tier) {
+    case 1:  return BANNER_FRESH_YELLOW;
+    case 2:  return BANNER_FRESH_RED;
+    default: return BANNER_FRESH_GREEN;
+    }
 }
 
 /* 取在 max_w 像素内能完整显示的最长前缀；按完整码点裁剪，不产生半个字符 */
@@ -389,12 +449,29 @@ void banner_prepare(const banner_content_t *content)
     const int x_left = BANNER_TEXT_X0;
     const int max_w  = BANNER_TEXT_W;   /* 右侧时间/标题栏 */
 
+    /* 首行文本：默认绝对时间；有新鲜度时换成相对时间文案并激活圆点 */
+    char freshness_text[BANNER_FRESH_TEXT_MAX];
+    const char *first_line = time;
+    if (content->has_freshness) {
+        banner_format_age(content->age_sec, freshness_text, sizeof(freshness_text));
+        first_line = freshness_text;
+        s_fresh_dot_active = true;
+        s_fresh_dot_color  = banner_freshness_color(
+            banner_freshness_tier(content->age_sec, content->open_count));
+        s_fresh_dot_x0     = x_left;
+        s_fresh_dot_y_off  = (line_h - BANNER_FRESH_DOT_D) / 2;   /* line 0 内垂直居中 */
+    } else {
+        s_fresh_dot_active = false;
+    }
+
     /* 第一遍：按常规文本规则换行（拉丁词整体不拆分，CJK 可逐字断行），
      * 并记录每个字的笔位置与所属行 */
     typedef struct { int16_t px; uint8_t line; const char *cp; } placed_t;
     static placed_t placed[UI_TITLE_GLYPHS];
     int placed_cnt = 0;
-    int pen_x = x_left;
+    /* 有圆点时文字整体右移，给圆点让出位置；换行分支仍重置回 x_left */
+    int pen_x = s_fresh_dot_active
+        ? x_left + BANNER_FRESH_DOT_D + BANNER_FRESH_DOT_GAP : x_left;
     int line  = 0;
     int pending_space_w = 0;   /* 上一个词之后累积的空白宽度（换行时丢弃） */
 
@@ -402,8 +479,8 @@ void banner_prepare(const banner_content_t *content)
     char text[BANNER_TEXT_MAX];
     size_t text_len = 0;
     text[0] = '\0';
-    if (time[0]) {
-        int n = snprintf(text, sizeof(text), "%s", time);
+    if (first_line[0]) {
+        int n = snprintf(text, sizeof(text), "%s", first_line);
         if (n > 0 && (size_t)n < sizeof(text)) text_len = (size_t)n;
         else text[0] = '\0';
     }
@@ -553,6 +630,9 @@ void banner_prepare(const banner_content_t *content)
              s_banner_y0, s_banner_y1, s_banner_line_h);
 }
 
+/* 首行新鲜度圆点；定义在下方，供 banner_draw_glyphs 调用 */
+static void banner_draw_freshness_dot(uint16_t *row, int screen_y, int x_start, int width);
+
 /* 将右侧当前行（滚动时叠加下一行）和左侧滚动行情混合到一行缓冲区 */
 static void banner_draw_glyphs(uint16_t *row, int screen_y, int x_start, int width)
 {
@@ -609,6 +689,44 @@ static void banner_draw_glyphs(uint16_t *row, int screen_y, int x_start, int wid
             real = blend565(real, cr, cg, cb, a);
             row[x - x_start] = swap16(real);
         }
+    }
+
+    /* 新鲜度圆点：只属于 line 0，滚动时随首行一起位移（与字形同映射） */
+    banner_draw_freshness_dot(row, screen_y, x_start, width);
+}
+
+/* 首行新鲜度圆点：仅当行 0 是当前行或滚动中的下一行时绘制。
+ * 静态 A8 圆盘直接混合，不占用字形表预算；底色为已叠加深色半透明的背景。 */
+static void banner_draw_freshness_dot(uint16_t *row, int screen_y, int x_start, int width)
+{
+    if (!s_fresh_dot_active || s_banner_line_h <= 0) return;
+    if (screen_y < s_banner_y0 || screen_y > s_banner_y1) return;
+
+    const int base_cur = s_banner_y0 + BANNER_PAD_Y - s_scroll;
+    const int base_nxt = base_cur + s_banner_line_h;
+    const int nxt = s_scrolling ? ((s_cur_line + 1) % s_banner_line_count) : -1;
+
+    int base;
+    if (s_cur_line == 0)      base = base_cur;
+    else if (nxt == 0)        base = base_nxt;
+    else                      return;
+
+    const int d = BANNER_FRESH_DOT_D;
+    int ly = screen_y - (base + s_fresh_dot_y_off);
+    if (ly < 0 || ly >= d) return;
+
+    /* RGB565 颜色展开成 8 位分量供混合 */
+    uint8_t cr = (uint8_t)(((s_fresh_dot_color >> 11) & 0x1F) << 3);
+    uint8_t cg = (uint8_t)(((s_fresh_dot_color >> 5) & 0x3F) << 2);
+    uint8_t cb = (uint8_t)((s_fresh_dot_color & 0x1F) << 3);
+
+    for (int col = 0; col < d; col++) {
+        int x = s_fresh_dot_x0 + col;
+        if (x < x_start || x >= x_start + width) continue;
+        uint8_t a = s_fresh_dot_bmp[ly * d + col];
+        if (a == 0) continue;
+        uint16_t bg = swap16(row[x - x_start]);
+        row[x - x_start] = swap16(blend565(bg, cr, cg, cb, a));
     }
 }
 
