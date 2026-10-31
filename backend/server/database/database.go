@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/esp32-rss-display/backend/server/config"
+	"github.com/esp32-rss-display/backend/server/cover"
 	"github.com/esp32-rss-display/backend/server/models"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
@@ -145,10 +146,34 @@ func Cleanup(maxAge time.Duration, imageDir string) (int64, int, error) {
 	if err != nil {
 		return deleted, removed, err
 	}
-	if deleted > 0 || removed > 0 {
-		log.Printf("[cleanup] 清理过期条目 %d 条，回收图片 %d 个", deleted, removed)
+	coverRemoved, err := gcCovers(imageDir)
+	if err != nil {
+		return deleted, removed, err
+	}
+	if deleted > 0 || removed > 0 || coverRemoved > 0 {
+		log.Printf("[cleanup] 清理过期条目 %d 条，回收图片 %d 个、封面 %d 个", deleted, removed, coverRemoved)
 	}
 	return deleted, removed, nil
+}
+
+// gcCovers 回收 covers 目录里不再被订阅源引用的封面：
+// 自定义封面以 cover_image_path 为准，生成封面以订阅源当前名称推导。
+func gcCovers(imageDir string) (int, error) {
+	if imageDir == "" {
+		return 0, nil
+	}
+	var feeds []models.Feed
+	if err := DB.Select("name", "cover_image_path").Find(&feeds).Error; err != nil {
+		return 0, fmt.Errorf("query feed covers: %w", err)
+	}
+	keep := make(map[string]struct{}, len(feeds)*2)
+	for _, feed := range feeds {
+		if feed.CoverImagePath != "" {
+			keep[filepath.Base(feed.CoverImagePath)] = struct{}{}
+		}
+		keep[filepath.Base(cover.GeneratedRelPath(feed.Name))] = struct{}{}
+	}
+	return cover.Cleanup(imageDir, keep)
 }
 
 // gcImages 删除 imageDir 下没有任何条目引用的 jpg 文件。
@@ -180,7 +205,14 @@ func gcImages(imageDir string) (int, error) {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".jpg") {
+		if d.IsDir() {
+			// covers 目录由 gcCovers 单独管理，不能按条目引用关系清理
+			if path != imageDir && d.Name() == cover.DirName {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(d.Name()), ".jpg") {
 			return nil
 		}
 		if _, ok := keep[d.Name()]; ok {

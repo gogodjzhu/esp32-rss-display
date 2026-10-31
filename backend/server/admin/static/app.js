@@ -36,6 +36,20 @@ async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+// 封面上传走 multipart，不复用 JSON 版 api 的请求头。
+async function uploadCover(path, file) {
+  const form = new FormData();
+  form.append('image', file);
+  const res = await fetch(path, { method: 'POST', body: form });
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = null; }
+  }
+  if (!res.ok) throw new Error((data && data.error) || `上传失败（HTTP ${res.status}）`);
+  return data;
+}
+
 let toastTimer = 0;
 function toast(message, type = 'ok') {
   const box = $('#toast');
@@ -87,7 +101,7 @@ function badge(enabled) {
 
 function editorRow(feed) {
   const isNew = !feed.id;
-  return `<tr class="editor"><td colspan="8">
+  return `<tr class="editor"><td colspan="9">
     <form class="edit-form" data-id="${isNew ? '' : feed.id}">
       <label class="field">
         <span>名称</span>
@@ -96,6 +110,10 @@ function editorRow(feed) {
       <label class="field grow">
         <span>URL</span>
         <input name="url" value="${esc(isNew ? '' : feed.url)}" placeholder="https://example.com/rss.xml" required>
+      </label>
+      <label class="field">
+        <span>封面（可选，JPEG/PNG）</span>
+        <input type="file" name="cover" accept="image/jpeg,image/png">
       </label>
       <label class="field check">
         <span>状态</span>
@@ -110,12 +128,18 @@ function editorRow(feed) {
   </td></tr>`;
 }
 
+function coverURL(feed) {
+  const version = feed.cover_image_path || feed.name || '';
+  return `/image/feed/${feed.id}.jpg?v=${encodeURIComponent(version)}`;
+}
+
 function feedRow(feed, status) {
   const err = status && status.last_error
     ? `<span class="err" title="${esc(status.last_error)}">${esc(truncate(status.last_error, 36))}</span>`
     : '—';
   return `<tr data-id="${feed.id}">
     <td class="name">${esc(feed.name)}</td>
+    <td class="cover"><img class="cover-thumb" src="${esc(coverURL(feed))}" alt="" loading="lazy"></td>
     <td class="url"><a href="${esc(feed.url)}" target="_blank" rel="noreferrer">${esc(feed.url)}</a></td>
     <td>${badge(feed.enabled)}</td>
     <td>${fmtTime(status && status.last_success_at)}</td>
@@ -125,6 +149,7 @@ function feedRow(feed, status) {
     <td class="actions">
       <button class="btn tiny" data-act="edit">编辑</button>
       <button class="btn tiny" data-act="toggle">${feed.enabled ? '停用' : '启用'}</button>
+      ${feed.cover_image_path ? '<button class="btn tiny" data-act="cover-clear">默认封面</button>' : ''}
       <button class="btn tiny danger" data-act="delete">删除</button>
     </td>
   </tr>`;
@@ -138,7 +163,7 @@ function renderFeeds() {
   if (state.adding) parts.push(editorRow({}));
 
   if (!state.feeds.length && !state.adding) {
-    parts.push('<tr><td colspan="8" class="empty">还没有订阅源，点「新增订阅源」添加。</td></tr>');
+    parts.push('<tr><td colspan="9" class="empty">还没有订阅源，点「新增订阅源」添加。</td></tr>');
   }
 
   for (const feed of state.feeds) {
@@ -212,12 +237,22 @@ async function saveFeed(form) {
 
   setFormBusy(form, true);
   try {
+    let saved = null;
     if (id) {
-      await api(`/v1/feeds/${id}`, { method: 'PATCH', body: { name, url, enabled } });
-      toast('已保存');
+      saved = await api(`/v1/feeds/${id}`, { method: 'PATCH', body: { name, url, enabled } });
     } else {
-      await api('/v1/feeds', { method: 'POST', body: { name, url, enabled } });
-      toast('已新增，下一轮抓取生效');
+      saved = await api('/v1/feeds', { method: 'POST', body: { name, url, enabled } });
+    }
+    const coverFile = form.elements.cover && form.elements.cover.files[0];
+    if (coverFile && saved) {
+      try {
+        await uploadCover(`/v1/feeds/${saved.id}/cover`, coverFile);
+        toast('已保存并更新封面');
+      } catch (coverErr) {
+        toast(`订阅源已保存，但封面上传失败：${coverErr.message}`, 'error');
+      }
+    } else {
+      toast(id ? '已保存' : '已新增，下一轮抓取生效');
     }
     state.editing = null;
     state.adding = false;
@@ -263,6 +298,18 @@ async function deleteFeed(feed) {
   }
 }
 
+async function clearCover(feed, button) {
+  button.disabled = true;
+  try {
+    await api(`/v1/feeds/${feed.id}/cover`, { method: 'DELETE' });
+    toast('已恢复按名称生成的默认封面');
+    await loadAll();
+  } catch (err) {
+    toast(`操作失败：${err.message}`, 'error');
+    button.disabled = false;
+  }
+}
+
 function bindEvents() {
   $('#feeds-body').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-act]');
@@ -284,6 +331,8 @@ function bindEvents() {
       renderFeeds();
     } else if (button.dataset.act === 'toggle') {
       toggleFeed(feed, button);
+    } else if (button.dataset.act === 'cover-clear') {
+      clearCover(feed, button);
     } else if (button.dataset.act === 'delete') {
       deleteFeed(feed);
     }

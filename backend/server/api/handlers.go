@@ -173,14 +173,13 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	imageURL := ""
-	if item.ImagePath != "" {
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
-		imageURL = fmt.Sprintf("%s://%s/image/%d.jpg", scheme, r.Host, item.ID)
+	// 条目没有图片时由 /image/{id}.jpg 回退到订阅源封面，
+	// 因此这里始终返回图片地址，设备端不需要再处理“无图”分支。
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
 	}
+	imageURL := fmt.Sprintf("%s://%s/image/%d.jpg", scheme, r.Host, item.ID)
 
 	// 发布时间的展示字符串：优先使用 feed 的发布时间，缺失时回退为入库时间
 	pubTime := itemPubTime(item, now)

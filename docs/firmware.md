@@ -54,7 +54,7 @@ POST <base>/v1/item/<item_id>/rating
      {"rating":1,"device_id":"..."}
 ```
 
-next 响应支持 `title`、`published_at`、`image_url`、可选 `item_id` 和可选 `stocks`。缺少图像时显示标题与纯色背景；存在的 ID 必须是非零 uint32 整数。缺少 ID 的内容仍可正常轮播，评分会返回失败反馈，不发送请求。仓库内 Go 后端已返回稳定 `item_id` 并实现 `/v1/item/{item_id}/rating`：同一设备对同一条目重复评分覆盖为最新值，评分不移动设备的 `current_item_id`，也不改变轮播进度；`server/api/rating_test.go` 覆盖落库、覆盖写、非法输入和轮播隔离。对外部后端的要求相同。
+next 响应支持 `title`、`published_at`、`image_url`、可选 `item_id` 和可选 `stocks`。缺少图像时显示标题与纯色背景；仓库内 Go 后端会为无图条目回退到订阅源自定义封面或按名称生成的封面，因此正常情况下 `image_url` 始终存在，固件仍保留缺图降级。存在的 ID 必须是非零 uint32 整数。缺少 ID 的内容仍可正常轮播，评分会返回失败反馈，不发送请求。仓库内 Go 后端已返回稳定 `item_id` 并实现 `/v1/item/{item_id}/rating`：同一设备对同一条目重复评分覆盖为最新值，评分不移动设备的 `current_item_id`，也不改变轮播进度；`server/api/rating_test.go` 覆盖落库、覆盖写、非法输入和轮播隔离。对外部后端的要求相同。
 
 `size` 表示设备本次期望展示的行情条数，由固件按展示时长和滚动节奏在编译期推导（见 `lib/ui_limits/ui_limits.h`，当前约 20 条）；后端按设备轮换返回同一窗口。旧固件不带 `size` 时后端默认返回 3 条。
 

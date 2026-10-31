@@ -29,11 +29,18 @@ curl -s -X PATCH -H 'Content-Type: application/json' \
      -d '{"enabled":false}' http://localhost:8080/v1/feeds/1
 curl -s -X DELETE http://localhost:8080/v1/feeds/1
 
+# 封面：条目无图或图片下载失败时，/image/{id}.jpg 依次回退到订阅源自定义封面、
+# 按订阅源名称生成的封面，因此 next 始终返回 image_url。
+curl -s -X POST -F 'image=@cover.jpg' http://localhost:8080/v1/feeds/1/cover
+curl -s -X DELETE http://localhost:8080/v1/feeds/1/cover
+curl -s -o /tmp/cover.jpg http://localhost:8080/image/feed/1.jpg
+
 # 运行状态：每个源最近成功/失败、今日条数，条目与设备规模、图片目录占用
 curl -s http://localhost:8080/admin/status | jq .
 
 # 管理页面：浏览器打开 http://localhost:8080/admin/
-# - 订阅源 tab 合并 /v1/feeds 与 /admin/status，支持新增、行内编辑、启用/停用、删除
+# - 订阅源 tab 合并 /v1/feeds 与 /admin/status，支持新增、行内编辑、启用/停用、删除；
+#   编辑时可上传自定义封面（JPEG/PNG，保存后自动裁剪为 320×240），也可恢复默认封面
 # - 运行状态 tab 展示条目/设备/图片/数据库规模与每个源的健康度
 # - 静态资源通过 go:embed 打进二进制，构建与部署不需要额外文件
 # - 应用内不做鉴权：生产环境由 Caddy 对 /admin/* 与 /v1/feeds* 加 basic_auth

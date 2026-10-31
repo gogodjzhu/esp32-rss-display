@@ -98,6 +98,31 @@ func TestNextOmitsStocksWhenUnavailable(t *testing.T) {
 	}
 }
 
+func TestNextAlwaysReturnsImageURL(t *testing.T) {
+	setupTestDB(t)
+	db := database.GetDB()
+	feed := models.Feed{Name: "No Image Feed", URL: "http://feed.example/no-image", Enabled: true}
+	if err := db.Create(&feed).Error; err != nil {
+		t.Fatalf("create feed: %v", err)
+	}
+	item := models.Item{FeedID: feed.ID, Title: "no image", URL: "http://feed.example/no-image/1", ImagePath: ""}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatalf("create item: %v", err)
+	}
+
+	code, body := doNextRequest(t, "dev-image-url", "")
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", code, body)
+	}
+	var resp NextItemResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ImageURL == "" {
+		t.Fatal("条目没有图片时 next 也应返回 image_url 兜底")
+	}
+}
+
 func TestStockWindowSize(t *testing.T) {
 	cases := []struct {
 		raw  string

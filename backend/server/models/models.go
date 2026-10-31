@@ -21,6 +21,9 @@ type Feed struct {
 	URL       string    `gorm:"column:url" json:"url"`
 	Enabled   bool      `gorm:"column:enabled" json:"enabled"`
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
+	// CoverImagePath 为管理页上传的自定义封面（相对 imageDir 的路径）。
+	// 为空时后端按订阅源名称动态生成封面，作为条目无图时的兜底。
+	CoverImagePath string `gorm:"column:cover_image_path" json:"cover_image_path"`
 	// 抓取健康状态：成功时刷新 LastSuccessAt 并清空 LastError，
 	// 失败时记录 LastError 与 LastErrorAt，供 /admin/status 展示。
 	LastSuccessAt *time.Time `gorm:"column:last_success_at" json:"last_success_at"`

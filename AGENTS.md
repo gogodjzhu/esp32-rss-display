@@ -57,9 +57,12 @@ go mod tidy                                         # 同步依赖
 **API 接口：**
 - `GET /v1/device/{device_id}/next?size=N` — 获取设备的下一条 RSS 内容（返回稳定 `item_id`，并按 `size` 附带轮换的实时行情 `stocks`，缺省 3 条）
 - `POST /v1/item/{item_id}/rating` — 评分落库，同设备同条目覆盖为最新值，不推进 `current_item_id`
+- `GET /v1/feeds` / `POST /v1/feeds` / `PATCH /v1/feeds/{id}` / `DELETE /v1/feeds/{id}` — 订阅源增删改查
+- `POST /v1/feeds/{id}/cover` — multipart（`image` 字段）上传订阅源自定义封面；`DELETE` 同路径恢复按名称生成的默认封面
 - `GET /nfc/{device_id}` — 重定向到当前条目的原始 URL
 - `GET /metrics` — Prometheus 监控指标
-- `GET /image/{id}.jpg` — 渲染图片（默认从 `data/images/` 目录提供）
+- `GET /image/{id}.jpg` — 渲染条目图片；条目无图或下载失败时回退到订阅源封面
+- `GET /image/feed/{id}.jpg` — 订阅源当前封面（自定义优先，否则按名称生成）
 
 **行情：** `config.yaml` 的 `stocks.symbols` 使用腾讯行情编号（`sh`/`sz`/`bj`/`hk`/`us` 前缀），后台按 `refresh_seconds`（默认 30 秒，最小 5 秒）拉取并缓存全部行情；next 按 `size`（缺省 3，最大 32）返回该设备的轮换窗口，拉取失败保留上一份，未配置或无数据时省略 `stocks` 字段。
 

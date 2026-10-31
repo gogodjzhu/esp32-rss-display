@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/esp32-rss-display/backend/server/config"
+	"github.com/esp32-rss-display/backend/server/cover"
 	"github.com/esp32-rss-display/backend/server/database"
 	"github.com/esp32-rss-display/backend/server/models"
 	"gorm.io/gorm"
@@ -26,6 +27,9 @@ type feedRequest struct {
 	URL     *string `json:"url"`
 	Enabled *bool   `json:"enabled"`
 }
+
+// 自定义封面单文件上限；内容会重新编码为 320×240 JPEG，不需要保留原图。
+const maxCoverUpload = 8 << 20
 
 func decodeFeedRequest(r *http.Request) (*feedRequest, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
@@ -165,6 +169,97 @@ func UpdateFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := db.Model(&feed).Updates(updates).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := db.First(&feed, id).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, feed)
+}
+
+// UploadFeedCover 接收 multipart 表单中的 image 字段，归一化为目标尺寸后
+// 保存为订阅源自定义封面。条目自身没有图片时优先使用这张图。
+func UploadFeedCover(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "非法的 feed id")
+		return
+	}
+
+	db := database.GetDB()
+	var feed models.Feed
+	if err := db.First(&feed, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "订阅源不存在")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxCoverUpload)
+	if err := r.ParseMultipartForm(maxCoverUpload); err != nil {
+		writeError(w, http.StatusBadRequest, "封面上传失败：文件过大或表单格式错误")
+		return
+	}
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "缺少 image 文件字段")
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(io.LimitReader(file, maxCoverUpload+1))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "读取封面失败: "+err.Error())
+		return
+	}
+	if len(data) == 0 {
+		writeError(w, http.StatusBadRequest, "封面文件为空")
+		return
+	}
+	if len(data) > maxCoverUpload {
+		writeError(w, http.StatusRequestEntityTooLarge, "封面文件不能超过 8 MB")
+		return
+	}
+
+	rel, err := cover.SaveUpload(ImageDir(), data)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := db.Model(&feed).Update("cover_image_path", rel).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := db.First(&feed, id).Error; err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, feed)
+}
+
+// DeleteFeedCover 清除自定义封面，回到按订阅源名称生成的默认封面。
+func DeleteFeedCover(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "非法的 feed id")
+		return
+	}
+
+	db := database.GetDB()
+	var feed models.Feed
+	if err := db.First(&feed, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			writeError(w, http.StatusNotFound, "订阅源不存在")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := db.Model(&feed).Update("cover_image_path", "").Error; err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
