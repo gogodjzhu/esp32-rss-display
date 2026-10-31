@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>esp32-rss 管理</title>
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>esp32-rss 管理</h1>
+  <nav class="tabs">
+    <button class="tab active" data-tab="feeds">订阅源</button>
+    <button class="tab" data-tab="status">运行状态</button>
+  </nav>
+  <button id="reload" class="btn ghost">刷新</button>
+</header>
+
+<main>
+  <p class="hint">订阅源改动在下一轮抓取生效（默认每 15 分钟）；列表始终以接口返回为准。</p>
+
+  <section id="tab-feeds" class="panel">
+    <div class="toolbar">
+      <button id="add-feed" class="btn primary">新增订阅源</button>
+      <span class="muted" id="feed-count"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th>URL</th>
+            <th>状态</th>
+            <th>最近成功</th>
+            <th class="num">今日</th>
+            <th class="num">总数</th>
+            <th>最近错误</th>
+            <th class="actions">操作</th>
+          </tr>
+        </thead>
+        <tbody id="feeds-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="tab-status" class="panel hidden">
+    <div class="cards" id="status-cards"></div>
+    <h2>订阅源健康度</h2>
+    <div class="table-wrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th>URL</th>
+            <th>状态</th>
+            <th>最近成功</th>
+            <th>最近失败</th>
+            <th class="num">今日</th>
+            <th class="num">总数</th>
+          </tr>
+        </thead>
+        <tbody id="status-feeds"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>
