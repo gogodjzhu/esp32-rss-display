@@ -1,0 +1,17 @@
+/* 只放布局必需的全局规则；视觉样式交给 Ant Design 的 token 与组件。 */
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 移动端表格横向滚动更顺滑 */
+.ant-table-wrapper .ant-table {
+  -webkit-overflow-scrolling: touch;
+}

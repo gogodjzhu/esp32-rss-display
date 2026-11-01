@@ -63,6 +63,17 @@ go mod tidy                                         # 同步依赖
 - `GET /metrics` — Prometheus 监控指标
 - `GET /image/{id}.jpg` — 渲染条目图片；条目无图或下载失败时回退到订阅源封面
 - `GET /image/feed/{id}.jpg` — 订阅源当前封面（自定义优先，否则按名称生成）
+- `GET /admin/status` — 管理页概览数据：每个源的健康度、条目/NFC/评分/展示统计、近 14 天每日新增
+- `GET /admin/feeds/{id}/items?limit=&offset=` — 单个订阅源的条目列表（管理页抽屉）
+- `POST /admin/feeds/preview` — 新增订阅源前的真实抓取校验，返回源标题与样例条目
+
+**管理页前端：** 源码在 `backend/admin-web/`（Vite + React + Ant Design + Recharts），构建产物提交到 `server/admin/static/` 并由 `go:embed` 打进二进制——Go 构建与 Docker 不需要 Node。改完前端需重新构建：
+
+```sh
+cd backend/admin-web && npm install && npm run build   # 输出到 ../server/admin/static
+```
+
+`POST /v1/feeds` 在 `enabled=true` 时会先同步抓取一次校验，解析失败返回 422，坏源不会入库；`enabled=false` 跳过校验。
 
 **行情：** `config.yaml` 的 `stocks.symbols` 使用腾讯行情编号（`sh`/`sz`/`bj`/`hk`/`us` 前缀），后台按 `refresh_seconds`（默认 30 秒，最小 5 秒）拉取并缓存全部行情；next 按 `size`（缺省 3，最大 32）返回该设备的轮换窗口，拉取失败保留上一份，未配置或无数据时省略 `stocks` 字段。
 

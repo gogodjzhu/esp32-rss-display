@@ -1,0 +1,4 @@
+# 管理页前端源码不参与镜像构建：构建产物已提交在 server/admin/static，
+# Dockerfile 只编译 Go 二进制。
+backend/admin-web/node_modules
+backend/admin-web/.vite

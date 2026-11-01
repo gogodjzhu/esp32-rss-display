@@ -10,9 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/esp32-rss-display/backend/server/config"
 	"github.com/esp32-rss-display/backend/server/cover"
 	"github.com/esp32-rss-display/backend/server/database"
 	"github.com/esp32-rss-display/backend/server/models"
@@ -108,6 +106,16 @@ func CreateFeed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "该 url 的订阅源已存在")
 		return
 	}
+
+	// 先真抓一次再入库：坏源根本进不了库，不用等下一轮抓取才暴露。
+	// 显式创建为停用状态的源跳过校验，保留“先登记、稍后修”的用法。
+	if feed.Enabled {
+		if err := validateFeedSource(feed.URL); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+	}
+
 	if err := db.Create(&feed).Error; err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -316,107 +324,6 @@ func DeleteFeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// AdminStatus 汇总运行状态：每个源的健康度、条目与设备规模、图片目录占用。
-// 纯只读接口，供浏览器或 curl 排障使用。
-type AdminStatus struct {
-	Time     time.Time    `json:"time"`
-	MaxAgeH  int          `json:"max_age_hours"`
-	Feeds    []FeedStatus `json:"feeds"`
-	Items    ItemStats    `json:"items"`
-	Devices  DeviceStats  `json:"devices"`
-	Images   ImageStats   `json:"images"`
-	Database DBStats      `json:"database"`
-}
-
-type FeedStatus struct {
-	ID            uint       `json:"id"`
-	Name          string     `json:"name"`
-	URL           string     `json:"url"`
-	Enabled       bool       `json:"enabled"`
-	LastSuccessAt *time.Time `json:"last_success_at"`
-	LastErrorAt   *time.Time `json:"last_error_at"`
-	LastError     string     `json:"last_error,omitempty"`
-	ItemsToday    int64      `json:"items_today"`
-	ItemsTotal    int64      `json:"items_total"`
-}
-
-type ItemStats struct {
-	Total   int64 `json:"total"`
-	Last24h int64 `json:"last_24h"`
-}
-
-type DeviceStats struct {
-	Total    int64 `json:"total"`
-	Active1h int64 `json:"active_1h"`
-}
-
-type ImageStats struct {
-	Files int   `json:"files"`
-	Bytes int64 `json:"bytes"`
-}
-
-type DBStats struct {
-	File  string `json:"file,omitempty"`
-	Bytes int64  `json:"bytes"`
-}
-
-func AdminStatusHandler(w http.ResponseWriter, r *http.Request) {
-	db := database.GetDB()
-	now := time.Now()
-	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-
-	var feeds []models.Feed
-	if err := db.Order("id ASC").Find(&feeds).Error; err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	status := AdminStatus{
-		Time:    now,
-		MaxAgeH: int(config.MaxAge().Hours()),
-		Feeds:   make([]FeedStatus, 0, len(feeds)),
-	}
-	for _, f := range feeds {
-		fs := FeedStatus{
-			ID:            f.ID,
-			Name:          f.Name,
-			URL:           f.URL,
-			Enabled:       f.Enabled,
-			LastSuccessAt: f.LastSuccessAt,
-			LastErrorAt:   f.LastErrorAt,
-			LastError:     f.LastError,
-		}
-		db.Model(&models.Item{}).Where("feed_id = ?", f.ID).Count(&fs.ItemsTotal)
-		db.Model(&models.Item{}).
-			Where("feed_id = ? AND COALESCE(published_at, created_at) >= ?", f.ID, dayStart).
-			Count(&fs.ItemsToday)
-		status.Feeds = append(status.Feeds, fs)
-	}
-
-	db.Model(&models.Item{}).Count(&status.Items.Total)
-	db.Model(&models.Item{}).
-		Where("COALESCE(published_at, created_at) >= ?", now.Add(-24*time.Hour)).
-		Count(&status.Items.Last24h)
-
-	db.Model(&models.Device{}).Count(&status.Devices.Total)
-	db.Model(&models.Device{}).Where("last_seen >= ?", now.Add(-time.Hour)).Count(&status.Devices.Active1h)
-
-	if dir := ImageDir(); dir != "" {
-		status.Images = scanImages(dir)
-	}
-	if config.AppConfig != nil && config.AppConfig.Database.Driver != "mysql" {
-		dsn := config.AppConfig.Database.DSN
-		if idx := strings.IndexByte(dsn, '?'); idx != -1 {
-			dsn = dsn[:idx]
-		}
-		if info, err := os.Stat(dsn); err == nil && !info.IsDir() {
-			status.Database = DBStats{File: filepath.Base(dsn), Bytes: info.Size()}
-		}
-	}
-
-	writeJSON(w, http.StatusOK, status)
 }
 
 // scanImages 统计图片目录的文件数与占用（jpg 为准）。

@@ -69,6 +69,8 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.HandleFunc("POST /v1/feeds/{id}/cover", api.UploadFeedCover)
 	mux.HandleFunc("DELETE /v1/feeds/{id}/cover", api.DeleteFeedCover)
 	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
+	mux.HandleFunc("GET /admin/feeds/{id}/items", api.AdminFeedItems)
+	mux.HandleFunc("POST /admin/feeds/preview", api.AdminPreviewFeed)
 	admin.Mount(mux)
 	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)

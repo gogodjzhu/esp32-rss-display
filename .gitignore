@@ -20,3 +20,7 @@ backend/data/
 .build/
 __pycache__/
 *.pyc
+
+# 管理页前端的依赖清单需要入库（上面的 package.json 规则只针对根目录工具链）
+!backend/admin-web/package.json
+!backend/admin-web/package-lock.json

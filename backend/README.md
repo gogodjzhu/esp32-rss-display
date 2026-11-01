@@ -38,10 +38,23 @@ curl -s -o /tmp/cover.jpg http://localhost:8080/image/feed/1.jpg
 # 运行状态：每个源最近成功/失败、今日条数，条目与设备规模、图片目录占用
 curl -s http://localhost:8080/admin/status | jq .
 
+# 单个订阅源的条目（管理页抽屉用）：按发布时间倒序，分页返回
+curl -s 'http://localhost:8080/admin/feeds/1/items?limit=20&offset=0' | jq .
+
+# 新增订阅源前的预览校验：真实抓取一次，确认 URL 是可用的 RSS/Atom
+curl -s -X POST -H 'Content-Type: application/json' \
+     -d '{"url":"https://news.ycombinator.com/rss"}' \
+     http://localhost:8080/admin/feeds/preview | jq .
+
 # 管理页面：浏览器打开 http://localhost:8080/admin/
-# - 订阅源 tab 合并 /v1/feeds 与 /admin/status，支持新增、行内编辑、启用/停用、删除；
-#   编辑时可上传自定义封面（JPEG/PNG，保存后自动裁剪为 320×240），也可恢复默认封面
-# - 运行状态 tab 展示条目/设备/图片/数据库规模与每个源的健康度
+# - 「概览」默认打开：条目/设备/评分/存储规模、近 14 天新增与评分分布图表、异常源摘要
+# - 「订阅源」表格：状态、最近成功、最近新内容、条目数、展示/NFC/评分、最近错误；
+#   操作收进下拉菜单，点击行打开该源已抓取条目的抽屉
+# - 新增订阅源必须先「校验并预览」，后端同时会在创建时再校验一次
+# - 支持亮色/暗色/跟随系统主题，移动端表格横向滚动、抽屉全屏
+# - 前端源码在 backend/admin-web/（Vite + React + Ant Design + Recharts），
+#   构建产物 server/admin/static/ 已入库；改前端后执行：
+#       cd backend/admin-web && npm install && npm run build
 # - 静态资源通过 go:embed 打进二进制，构建与部署不需要额外文件
 # - 应用内不做鉴权：生产环境由 Caddy 对 /admin/* 与 /v1/feeds* 加 basic_auth
 # 订阅源改动在下一轮抓取生效；config.yaml 只做首次种子，不再覆盖已有源的名称与启用状态
