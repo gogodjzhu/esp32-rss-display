@@ -44,12 +44,22 @@ void app_controller_request_restart(unsigned delay_ms)
     portEXIT_CRITICAL(&s_lock);
 }
 
+#define MAX_CONSECUTIVE_FAILURES 30
+
 static void record_error(net_result_t result)
 {
     portENTER_CRITICAL(&s_lock);
     s_snapshot.last_error = result.error;
     s_snapshot.last_http_status = result.http_status;
-    if (result.error != ESP_OK) s_snapshot.failures++;
+    if (result.error != ESP_OK) {
+        s_snapshot.failures++;
+        if (s_snapshot.failures >= MAX_CONSECUTIVE_FAILURES) {
+            portEXIT_CRITICAL(&s_lock);
+            ESP_LOGE(TAG, "连续 %u 次失败，重启恢复", s_snapshot.failures);
+            app_controller_request_restart(100);
+            return;
+        }
+    }
     portEXIT_CRITICAL(&s_lock);
     if (result.error != ESP_OK) ESP_LOGW(TAG, "请求失败: %s，HTTP=%d", esp_err_to_name(result.error), result.http_status);
 }

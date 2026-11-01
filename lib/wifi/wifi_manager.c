@@ -174,6 +174,8 @@ esp_err_t wifi_manager_init(void)
     if ((err = esp_wifi_init(&wifi)) != ESP_OK) return err;
     /* 凭证只由配置服务保存，驱动不维护第二份持久化副本 */
     if ((err = esp_wifi_set_storage(WIFI_STORAGE_RAM)) != ESP_OK) return err;
+    if ((err = esp_wifi_set_ps(WIFI_PS_NONE)) != ESP_OK)
+        ESP_LOGW(TAG, "关闭省电模式失败: %s", esp_err_to_name(err));
     if ((err = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, handler, NULL)) != ESP_OK
         || (err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, handler, NULL)) != ESP_OK
         || (err = esp_event_handler_register(WIFI_MANAGER_EVENT, ESP_EVENT_ANY_ID, handler, NULL)) != ESP_OK) return err;
