@@ -57,6 +57,28 @@ func TestAdminServesPageAndAssets(t *testing.T) {
 	}
 }
 
+// TestAdminServesFavicon 确保站点图标随构建产物一起打进二进制，
+// 否则浏览器标签页会退回默认图标。
+func TestAdminServesFavicon(t *testing.T) {
+	pageRec := httptest.NewRecorder()
+	newMux().ServeHTTP(pageRec, httptest.NewRequest(http.MethodGet, "/admin/", nil))
+	page := pageRec.Body.String()
+
+	for _, path := range []string{"/admin/favicon.svg", "/admin/favicon.ico"} {
+		if !strings.Contains(page, path) {
+			t.Fatalf("页面缺少图标引用 %q", path)
+		}
+		rec := httptest.NewRecorder()
+		newMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		if rec.Body.Len() == 0 {
+			t.Fatalf("%s 内容为空", path)
+		}
+	}
+}
+
 // TestAdminBundleHasChineseUI 确认打包进的是中文界面，避免构建时漏掉源码。
 func TestAdminBundleHasChineseUI(t *testing.T) {
 	rec := httptest.NewRecorder()
