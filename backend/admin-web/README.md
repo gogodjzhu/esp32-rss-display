@@ -30,3 +30,4 @@ npm run build    # 输出到 ../server/admin/static
 - `src/components/FeedFormModal.tsx`：新增/编辑弹窗，新增前必须校验预览
 - `src/components/FeedItemsDrawer.tsx`：单源条目抽屉
 - `src/api.ts`、`src/types.ts`：后端接口封装与类型
+- `public/favicon.svg`、`public/favicon.ico`：站点图标，构建时原样复制到产物根目录
