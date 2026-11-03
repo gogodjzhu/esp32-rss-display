@@ -56,8 +56,8 @@ type StockConfig struct {
 // StockSymbol 使用腾讯行情前缀编号：sh/sz/bj 为 A 股与指数，
 // hk 为港股，us 为美股；name 留空时使用数据源返回的名称。
 type StockSymbol struct {
-	Code string `yaml:"code"`
-	Name string `yaml:"name"`
+	Code string `yaml:"code" json:"code"`
+	Name string `yaml:"name" json:"name"`
 }
 
 type FeedConfig struct {

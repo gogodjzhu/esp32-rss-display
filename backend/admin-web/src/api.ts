@@ -4,6 +4,8 @@ import type {
   FeedInput,
   FeedPreview,
   FeedStatus,
+  StockConfig,
+  StockConfigInput,
 } from './types';
 
 // 后端错误统一返回 {error}，这里还原成可直接展示的文案。
@@ -63,4 +65,9 @@ export const api = {
 
   clearCover: (id: number) =>
     request<FeedStatus>(`/v1/feeds/${id}/cover`, { method: 'DELETE' }),
+
+  stocks: () => request<StockConfig>('/admin/stocks'),
+
+  updateStocks: (input: StockConfigInput) =>
+    jsonRequest<StockConfig>('/admin/stocks', 'PUT', input),
 };

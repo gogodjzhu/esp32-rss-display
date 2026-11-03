@@ -28,6 +28,7 @@ export default defineConfig({
       '/v1': 'http://localhost:8080',
       '/admin/status': 'http://localhost:8080',
       '/admin/feeds': 'http://localhost:8080',
+      '/admin/stocks': 'http://localhost:8080',
       '/image': 'http://localhost:8080',
       '/metrics': 'http://localhost:8080',
       '/nfc': 'http://localhost:8080',
