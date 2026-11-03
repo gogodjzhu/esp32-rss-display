@@ -71,6 +71,8 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
 	mux.HandleFunc("GET /admin/feeds/{id}/items", api.AdminFeedItems)
 	mux.HandleFunc("POST /admin/feeds/preview", api.AdminPreviewFeed)
+	mux.HandleFunc("GET /admin/stocks", api.AdminGetStocks)
+	mux.HandleFunc("PUT /admin/stocks", api.AdminUpdateStocks)
 	admin.Mount(mux)
 	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)
@@ -81,12 +83,16 @@ func runServer(cmd *cobra.Command, args []string) {
 	worker := rssworker.New(&cfg.RSS, imageDir)
 	worker.Start()
 
-	// 行情服务使用内存快照，启动失败或未配置时 next 响应不携带 stocks
-	stockService := stocks.New(&cfg.Stocks)
-	if stockService != nil {
-		stockService.Start()
-		api.StockQuotes = stockService
+	// 行情服务使用内存快照；配置优先读数据库（管理页保存的），首次启动用
+	// config.yaml 的 stocks 作种子。未启用时服务仍然存在，管理页可随时启用。
+	stockCfg, err := stocks.LoadConfig(cfg.Stocks)
+	if err != nil {
+		log.Printf("[stocks] 加载行情配置失败，按配置文件继续: %v", err)
 	}
+	stockService := stocks.New(&stockCfg)
+	stockService.Start()
+	api.StockQuotes = stockService
+	api.StockAdminService = stockService
 
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {

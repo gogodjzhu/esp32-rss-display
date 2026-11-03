@@ -66,6 +66,8 @@ go mod tidy                                         # 同步依赖
 - `GET /admin/status` — 管理页概览数据：每个源的健康度、条目/NFC/评分/展示统计、近 14 天每日新增
 - `GET /admin/feeds/{id}/items?limit=&offset=` — 单个订阅源的条目列表（管理页抽屉）
 - `POST /admin/feeds/preview` — 新增订阅源前的真实抓取校验，返回源标题与样例条目
+- `GET /admin/stocks` — 读取行情配置与当前拉取状态（最近成功/失败、缓存条数、缺失编号）
+- `PUT /admin/stocks` — 校验并保存整份行情配置，保存后立即应用到运行中的服务，无需重启
 
 **管理页前端：** 源码在 `backend/admin-web/`（Vite + React + Ant Design + Recharts），构建产物提交到 `server/admin/static/` 并由 `go:embed` 打进二进制——Go 构建与 Docker 不需要 Node。改完前端需重新构建：
 
@@ -75,7 +77,7 @@ cd backend/admin-web && npm install && npm run build   # 输出到 ../server/adm
 
 `POST /v1/feeds` 在 `enabled=true` 时会先同步抓取一次校验，解析失败返回 422，坏源不会入库；`enabled=false` 跳过校验。
 
-**行情：** `config.yaml` 的 `stocks.symbols` 使用腾讯行情编号（`sh`/`sz`/`bj`/`hk`/`us` 前缀），后台按 `refresh_seconds`（默认 30 秒，最小 5 秒）拉取并缓存全部行情；next 按 `size`（缺省 3，最大 32）返回该设备的轮换窗口，拉取失败保留上一份，未配置或无数据时省略 `stocks` 字段。
+**行情：** 行情编号与启用状态在管理页「行情」tab 配置（`stock_settings` 单行表持久化，保存即生效），也可通过 `PUT /admin/stocks` 修改；`config.yaml` 的 `stocks` 只作为首次启动的种子，之后以数据库为准。编号使用腾讯行情前缀（`sh`/`sz`/`bj`/`hk`/`us`，最多 100 个），后台按 `refresh_seconds`（默认 30 秒，最小 5 秒）拉取并缓存全部行情；next 按 `size`（缺省 3，最大 32）返回该设备的轮换窗口，拉取失败保留上一份，未配置或无数据时省略 `stocks` 字段。修改编号后会清空旧快照并立即重新拉取，避免设备继续收到已删除的编号。
 
 **数据库：** 默认使用 SQLite，路径为 `/tmp/data/rss.db`（重启后不保留）。也支持通过 `config.yaml` 配置 `database.driver: mysql` 使用 MySQL。每次启动时执行 GORM AutoMigrate。
 

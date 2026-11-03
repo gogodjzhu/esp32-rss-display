@@ -15,7 +15,8 @@ rss:
   # image_resize_filter: 可选 "catmullrom"（默认，画质好）或 "nearest"
   image_resize_filter: catmullrom
 
-# next 响应附带的行情栏；每次返回的条数由设备 next 的 size 参数决定
+# next 响应附带的行情栏；每次返回的条数由设备 next 的 size 参数决定。
+# 注意：本段只作为首次启动的种子，之后以管理页「行情」tab（/admin/）保存的配置为准。
 # 编号格式：sh/sz/bj 为 A 股与指数，hk 为港股，us 为美股
 # name 可覆盖数据源返回的名称，留空则使用数据源名称
 stocks:

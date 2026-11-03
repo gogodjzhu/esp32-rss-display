@@ -95,7 +95,7 @@ func TestAdminBundleHasChineseUI(t *testing.T) {
 		newMux().ServeHTTP(jsRec, httptest.NewRequest(http.MethodGet, path, nil))
 		bundle.WriteString(jsRec.Body.String())
 	}
-	for _, needle := range []string{"概览", "订阅源", "新增订阅源"} {
+	for _, needle := range []string{"概览", "订阅源", "新增订阅源", "行情"} {
 		if !strings.Contains(bundle.String(), needle) {
 			t.Fatalf("打包结果缺少文案 %q", needle)
 		}
