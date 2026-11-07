@@ -1,8 +1,8 @@
 # Name,   Type, SubType, Offset,   Size,     Flags
-# ESP32-S3 固定 8MB 分区布局，资源构建脚本按此表生成及烧录镜像。
-# 保持已有分区位置，保留设备配置与资源兼容性。
+# ESP32-S3 固定 4MB 分区布局，资源构建脚本按此表生成及烧录镜像。
+# 表止于 0x400000（4MB 上限），NVS 位置保持不变以保留设备配置。
 nvs,      data, nvs,     ,         0x6000,
 phy_init, data, phy,     ,         0x1000,
-factory,  app,  factory, ,         2M,
-storage,  data, spiffs,  ,         0x80000,
-font,     data, 0x40,    0x290000,  0x200000,
+factory,  app,  factory, ,         0x1C0000,
+storage,  data, spiffs,  0x1D0000, 0x40000,
+font,     data, 0x40,    0x210000, 0x1F0000,

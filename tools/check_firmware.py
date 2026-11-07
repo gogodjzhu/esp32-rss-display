@@ -21,9 +21,13 @@ assert [s for s in config.sections() if s.startswith("env:")] == ["env:esp32s3"]
 env = config["env:esp32s3"]
 assert env["board"] == "esp32-s3-devkitc-1"
 assert env["board_build.partitions"] == "partitions_s3.csv"
+assert env["board_upload.flash_size"] == "4MB"
 assert env["build_unflags"] == "-fuse-cxa-atexit"
 assert env["lib_ldf_mode"] == "off"
-assert 'CONFIG_IDF_TARGET="esp32s3"' in (ROOT / "sdkconfig.defaults").read_text()
+defaults = (ROOT / "sdkconfig.defaults").read_text()
+assert 'CONFIG_IDF_TARGET="esp32s3"' in defaults
+# 镜像头声明的 flash 容量必须与分区表上限一致，避免启动时容量探测 assert
+assert "CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y" in defaults
 
 # 仅检查项目维护文件；依赖、缓存和生成物不属于源码契约
 files = subprocess.check_output(["git", "ls-files", "-co", "--exclude-standard", "-z"], cwd=ROOT).decode().split("\0")
@@ -45,11 +49,11 @@ spec.loader.exec_module(partitions)
 partitions.offset_part_table = 0x8000
 expected = partitions.PartitionTable.from_csv((ROOT / env["board_build.partitions"]).read_text())
 expected.verify()
-expected.verify_size_fits(8 * 1024 * 1024)
+expected.verify_size_fits(4 * 1024 * 1024)
 assert expected["nvs"].offset == 0x9000
-assert expected["factory"].offset == 0x10000 and expected["factory"].size == 0x200000
-assert expected["storage"].offset == 0x210000 and expected["storage"].size == 0x80000
-assert expected["font"].offset == 0x290000 and expected["font"].size == 0x200000
+assert expected["factory"].offset == 0x10000 and expected["factory"].size == 0x1C0000
+assert expected["storage"].offset == 0x1D0000 and expected["storage"].size == 0x40000
+assert expected["font"].offset == 0x210000 and expected["font"].size == 0x1F0000
 actual = partitions.PartitionTable.from_binary((args.build_dir / "partitions.bin").read_bytes())
 for entry in expected:
     built = actual[entry.name]

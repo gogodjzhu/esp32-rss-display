@@ -6,9 +6,9 @@
 #endif
 #define BOARD_TFT_MOSI 2
 #define BOARD_TFT_SCLK 1
-#define BOARD_TFT_CS 6
-#define BOARD_TFT_DC 5
-#define BOARD_TFT_RST 4
+#define BOARD_TFT_CS 5
+#define BOARD_TFT_DC 4
+#define BOARD_TFT_RST 3
 #define BOARD_BUTTON_GPIO 0
 #define DISPLAY_WIDTH 320
 #define DISPLAY_HEIGHT 240

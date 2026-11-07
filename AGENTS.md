@@ -11,7 +11,7 @@
 
 ## 固件（PlatformIO + ESP-IDF）
 
-**工具链：** PlatformIO Core 6.2.0，`espressif32 @ 6.13.0`，`framework = espidf`（ESP-IDF 5.5.3），板型 `esp32-s3-devkitc-1`，LVGL 9.6.0。唯一环境为 `esp32s3`，8MB flash，不依赖 PSRAM。
+**工具链：** PlatformIO Core 6.2.0，`espressif32 @ 6.13.0`，`framework = espidf`（ESP-IDF 5.5.3），板型 `esp32-s3-devkitc-1`，LVGL 9.6.0。唯一环境为 `esp32s3`，4MB flash，不依赖 PSRAM。
 
 ```sh
 pio run                          # 编译
@@ -22,7 +22,7 @@ pio run --target clean           # 清理
 
 **资源镜像：** `build_spiffs.py` 从 `data/www/` 生成 SPIFFS；`build_font.py` 注册 `assets/fonts/cjk_subset.ttf`。两者经 `tools/firmware_assets.py` 使用 IDF 官方分区解析器获取大小和地址，并校验资源尺寸。普通 upload 会同时烧录资源。
 
-**分区表：** 唯一基准为 `partitions_s3.csv`（8MB）。`storage` 偏移 `0x210000`、大小 `0x80000`；`font` 偏移 `0x290000`、大小 `0x200000`。保留原有 NVS 和应用分区布局，修改固件版本不会清除用户凭证。
+**分区表：** 唯一基准为 `partitions_s3.csv`（4MB）。`factory` 大小 `0x1C0000`；`storage` 偏移 `0x1D0000`、大小 `0x40000`；`font` 偏移 `0x210000`、大小 `0x1F0000`。保留 NVS 位置（`0x9000`），修改固件版本不会清除用户凭证。
 
 **中文显示：** 运行期由 `lib/cjk_font` 用 `esp_partition_mmap` 零拷贝映射 `font` 分区里的子集 TTF，交给 LVGL 内置的 Tiny TTF（`src/lv_conf.h` 中 `LV_USE_TINY_TTF=1`，stb_truetype）按需光栅化。字体覆盖 GB2312 全部汉字 + 拉丁 + 常用标点，由 `tools/gen_cjk_font.py`（fonttools）从文泉驿微米黑（Apache-2.0）裁剪，约 1.4MB。重新生成见 `assets/fonts/README.md`。
 
@@ -38,7 +38,7 @@ pio run --target clean           # 清理
 
 **注意：** `platformio.ini` 中的 `build_unflags = -fuse-cxa-atexit` 是 ESP-IDF 所需的 C++ ABI 兼容性配置，禁止删除。
 
-**TFT（ST7789）接线：** MOSI=GPIO2、SCLK=GPIO1、CS=GPIO6、DC=GPIO5、RST=GPIO4；交互使用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。板级定义集中于 `lib/display_driver/board_config.h`。
+**TFT（ST7789）接线：** MOSI=GP2、SCLK=GPI1、CS=GPI5、DC=GPI4、RST=GPI3；交互使用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。板级定义集中于 `lib/display_driver/board_config.h`。
 
 **配置：** Kconfig (`src/Kconfig`) 提供默认后端根地址；`CONFIG_DEVICE_ID` 留空时由芯片 MAC 生成唯一设备标识（`esp32s3-<12位hex>`），填写后作为显式覆盖。`app_config` 集中校验、迁移和保存用户配置，以 `config_v1` 单个 NVS 值承载 schema 1。管理页面保存后重启生效，active/saved 快照分开。固件版本 `CONFIG_FIRMWARE_VERSION=6` 仅作发布标识。已有完整 next URL 可识别则迁移，其他合法旧地址保留并在设置页提示修正；新结构配置损坏、旧配置非法或底层读取失败时一律保留原值、以默认无凭证配置开放配网入口，只有显式保存才覆盖，状态通过 `app_config_get_status()` 与 `/api/status` 的 `config_state` 暴露。
 
