@@ -1,5 +1,6 @@
 #include "app_controller.h"
 #include "app_config.h"
+#include "board_led.h"
 #include "button_input.h"
 #include "content_view.h"
 #include "http_server.h"
@@ -164,7 +165,7 @@ esp_err_t app_controller_run(void)
     esp_err_t err = app_config_init();
     if (err != ESP_OK) return err;
     if ((err = wifi_manager_init()) != ESP_OK || (err = button_input_init()) != ESP_OK
-        || (err = network_worker_start()) != ESP_OK) return err;
+        || (err = board_led_init()) != ESP_OK || (err = network_worker_start()) != ESP_OK) return err;
     if (!http_server_start()) ESP_LOGW(TAG, "管理服务器未启动");
     if ((err = wifi_manager_start()) != ESP_OK) return err;
     s_app.last_wifi = (wifi_status_t)-1;

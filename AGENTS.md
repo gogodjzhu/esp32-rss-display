@@ -38,7 +38,9 @@ pio run --target clean           # 清理
 
 **注意：** `platformio.ini` 中的 `build_unflags = -fuse-cxa-atexit` 是 ESP-IDF 所需的 C++ ABI 兼容性配置，禁止删除。
 
-**TFT（ST7789）接线：** MOSI=GP2、SCLK=GPI1、CS=GPI5、DC=GPI4、RST=GPI3；交互使用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。板级定义集中于 `lib/display_driver/board_config.h`。
+**TFT（ST7789）接线：** MOSI=GP2、SCLK=GPI1、CS=GPI5、DC=GPI4、RST=GPI3；交互使用板载 BOOT 键（GPIO0，内部上拉，下降沿中断）。
+
+**板级配置：** TFT 接线、BOOT 键和板上 LED 等通用引脚定义集中于 `lib/board_config/`（纯头文件组件，按 `ui_limits` 方式注册）。板上 LED 接 GPIO48，由 `board_led` 组件固定拉低。
 
 **配置：** Kconfig (`src/Kconfig`) 提供默认后端根地址；`CONFIG_DEVICE_ID` 留空时由芯片 MAC 生成唯一设备标识（`esp32s3-<12位hex>`），填写后作为显式覆盖。`app_config` 集中校验、迁移和保存用户配置，以 `config_v1` 单个 NVS 值承载 schema 1。管理页面保存后重启生效，active/saved 快照分开。固件版本 `CONFIG_FIRMWARE_VERSION=6` 仅作发布标识。已有完整 next URL 可识别则迁移，其他合法旧地址保留并在设置页提示修正；新结构配置损坏、旧配置非法或底层读取失败时一律保留原值、以默认无凭证配置开放配网入口，只有显式保存才覆盖，状态通过 `app_config_get_status()` 与 `/api/status` 的 `config_state` 暴露。
 
