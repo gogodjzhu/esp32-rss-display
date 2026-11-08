@@ -29,6 +29,13 @@
 <div id="migration" class="help-text" style="display:none"></div>
 <div id="degraded" class="status status-disconnected" style="display:none"></div>
 
+<label>屏幕方向</label>
+<select id="display_flip">
+  <option value="0">正常（横屏）</option>
+  <option value="1">180° 翻转（设备倒装安装时选择）</option>
+</select>
+<div class="help-text">倒装安装时选择翻转，画面与文字整体旋转 180°；保存并重启后生效</div>
+
 <div class="section-title">HTTP Headers</div>
 <div class="help-text">仅附加到后端 API 请求，不用于图片下载；最多 8 项</div>
 <div id="headers-list"></div>
@@ -83,6 +90,7 @@ window.onload = function() {
     .then(function(d){
       document.getElementById('api_base_url').value = d.api_base_url || '';
       document.getElementById('device_id').value = d.device_id || '';
+      document.getElementById('display_flip').value = d.display_flip ? '1' : '0';
       if (d.migration_required) {
         var hint = document.getElementById('migration');
         hint.style.display = 'block';
@@ -116,6 +124,7 @@ function saveSettings() {
   var body = JSON.stringify({
     api_base_url: url,
     device_id: device,
+    display_flip: document.getElementById('display_flip').value === '1',
     headers: hdrs.filter(function(h){ return h.k.trim(); })
   });
 

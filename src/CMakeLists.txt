@@ -5,5 +5,5 @@ idf_component_register(
          "../lib/app_controller/app_state.c"
          "../lib/http_server/http_server.c"
     INCLUDE_DIRS "." "../lib/app_controller" "../lib/http_server"
-    PRIV_REQUIRES app_config board_led button_input content_view network_worker ui_animation wifi
+    PRIV_REQUIRES app_config board_led button_input content_view display_driver network_worker ui_animation wifi
                   esp_timer esp_system esp_http_server spiffs json heap ui_limits)

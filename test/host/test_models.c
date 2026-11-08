@@ -178,6 +178,20 @@ static void test_config(void)
     assert(!config_model_parse("{\"schema_version\":2}", &parsed));
     assert(!memcmp(&before, &parsed, sizeof(before)));
     assert(!config_model_parse("{} trailing", &parsed));
+    /* 屏幕方向：翻转值完整往返，缺省按正常方向解析，非布尔值视为损坏 */
+    config = defaults();
+    config.display_flip = 1;
+    json = config_model_json(&config, true);
+    assert(json && config_model_parse(json, &parsed) && parsed.display_flip == 1);
+    free(json);
+    assert(config_model_validate(&config));
+    config.display_flip = 2;
+    assert(!config_model_validate(&config));
+    assert(config_model_parse("{\"schema_version\":1,\"api_base_url\":\"http://b\",\"device_id\":\"d\","
+        "\"wifi_ssid\":\"\",\"wifi_password\":\"\",\"headers\":[]}", &parsed));
+    assert(parsed.display_flip == 0);
+    assert(!config_model_parse("{\"schema_version\":1,\"api_base_url\":\"http://b\",\"device_id\":\"d\","
+        "\"wifi_ssid\":\"\",\"wifi_password\":\"\",\"headers\":[],\"display_flip\":\"yes\"}", &parsed));
     const char *bad_urls[] = {"http://", "http:///path", "http://user:pass@host", "http://host/has space", "file:///a", "http://host\\evil"};
     for (size_t i = 0; i < sizeof(bad_urls) / sizeof(bad_urls[0]); i++) assert(!config_model_http_url(bad_urls[i]));
 }

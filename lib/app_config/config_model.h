@@ -20,6 +20,8 @@ typedef struct {
     char wifi_password[65];
     /* 无法可靠识别的旧地址原样保留，等待管理页面修正 */
     char legacy_next_url[CONFIG_URL_MAX];
+    /* 屏幕方向：0 正常，1 整屏 180° 翻转（设备倒装安装）；缺省按正常方向 */
+    uint8_t display_flip;
 } app_config_t;
 
 bool config_model_validate(const app_config_t *config);

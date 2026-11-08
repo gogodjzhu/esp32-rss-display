@@ -31,6 +31,7 @@ python3 tools/check_firmware.py
 | `http_transport` | 有上限、检查完整性的 GET/POST；同时返回传输错误和 HTTP 状态 |
 | `content_view` / `jpeg_decoder` | 在 UI 任务解码并组合图片与标题，逐行输出，无全屏 framebuffer |
 | `display_driver` | S3 引脚与 ST7789 SPI；同步写入，调用返回后可复用输入像素 |
+| `board_config` | 纯头文件的板级配置：TFT 接线、按键、LED 与显示几何；面板原生 MADCTL 及 180° 翻转推导集中在此，其他固件只改原生方向一个值 |
 | `ui_animation` / `banner` / `cjk_font` | LVGL 页面、底栏、标题字形和动画；全部由 UI 任务调用 |
 | `wifi` | 默认事件循环内串行处理连接、重试、主动断开与配网，输出受保护的快照 |
 | `app_config` / `nvs_manager` | 设备标识、校验、迁移、完整配置保存、加载状态与降级恢复；业务模块不直接访问 NVS key |
@@ -40,13 +41,15 @@ python3 tools/check_firmware.py
 
 轮播进度由 banner 左右分栏之间的蓝色竖线表示，不占用屏幕底部；底部 2px 只留给评分条和评分结果条。评分条/结果条覆盖底部后显式失效，下一次正常轮播时恢复黑色底边，避免重复 SPI 写入。
 
+屏幕支持整屏 180° 翻转（设备倒装安装）：设置页的 `display_flip` 保存于 NVS 配置，`app_controller` 在显示初始化前通过 `display_driver_set_flip()` 生效，面板靠 MADCTL 方向位完成旋转，逻辑坐标系、图片尺寸与全部 UI 布局保持 320×240 不变，后端无需感知设备方向。翻转只取反 MADCTL 的 MX|MY 位，推导集中在 `lib/board_config/board_config.h`。
+
 应用/UI 任务独占所有 LVGL、字体、标题缓存、JPEG 解码和屏幕操作。网络任务通过结果队列移交 JPEG 缓冲，控制器在渲染、替换候选或丢弃过期结果时释放。每次任务携带 request ID；评分还携带用户操作时的 item ID。评分和反馈期间保留旧内容，下载好的候选内容等待交互结束后再展示。断网保留当前内容，旧 next 结果失效并释放。
 
 输入队列有 16 个时间戳槽，中断消抖 50ms。双击间隔小于 400ms 进入评分，单击窗口到期请求下一条。评分按键间隔至少 200ms，分值 0～5 循环；5 秒无操作后提交，0 分直接退出。评分暂停 60 秒轮播计时，提交反馈停留 1 秒后恢复剩余时间。网络慢请求不会阻塞 UI 事件消费。JPEG 解码仍在 UI 任务同步完成，每约 20ms 让出 CPU，输入要到整图解码完成后才处理；实际最长延迟需要板上测量。
 
 ## 配置与后端契约
 
-管理页面使用 `api_base_url`、`device_id` 和 `headers`，由固件生成：
+管理页面使用 `api_base_url`、`device_id`、`display_flip` 和 `headers`，由固件生成：
 
 ```text
 GET  <base>/v1/device/<device_id>/next?size=<N>

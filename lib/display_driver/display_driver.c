@@ -7,6 +7,8 @@
 #include <stddef.h>
 
 static spi_device_handle_t s_spi;
+/* 倒装开关只影响 MADCTL 方向位；逻辑坐标系（320x240）与所有调用方不变 */
+static bool s_flip180;
 
 static esp_err_t send_data(bool command, const void *data, size_t size)
 {
@@ -18,6 +20,11 @@ static esp_err_t send_data(bool command, const void *data, size_t size)
 static esp_err_t command(uint8_t value)
 {
     return send_data(true, &value, 1);
+}
+
+void display_driver_set_flip(bool flip_180)
+{
+    s_flip180 = flip_180;
 }
 
 esp_err_t display_driver_init(void)
@@ -41,7 +48,8 @@ esp_err_t display_driver_init(void)
     vTaskDelay(pdMS_TO_TICKS(150));
     if ((err = command(0x11)) != ESP_OK) return err;
     vTaskDelay(pdMS_TO_TICKS(120));
-    uint8_t orientation = 0x60;
+    /* 方向位来自板级原生 MADCTL 叠加 180° 翻转设置，初始化时序不变 */
+    uint8_t orientation = board_display_madctl(s_flip180);
     if ((err = command(0x36)) != ESP_OK || (err = send_data(false, &orientation, 1)) != ESP_OK) return err;
     uint8_t format = 0x55;
     if ((err = command(0x3A)) != ESP_OK || (err = send_data(false, &format, 1)) != ESP_OK) return err;

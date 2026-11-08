@@ -217,16 +217,20 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
     const cJSON *base = cJSON_GetObjectItemCaseSensitive(root, "api_base_url");
     const cJSON *device = cJSON_GetObjectItemCaseSensitive(root, "device_id");
     const cJSON *headers = cJSON_GetObjectItemCaseSensitive(root, "headers");
+    const cJSON *flip = cJSON_GetObjectItemCaseSensitive(root, "display_flip");
     char *json = cJSON_IsArray(headers) ? cJSON_PrintUnformatted(headers) : NULL;
     app_config_t config;
     app_config_get_saved(&config);
     bool valid = cJSON_IsObject(root) && cJSON_IsString(base) && cJSON_IsString(device) && json
+        /* 方向是可选字段：请求未携带时保留已保存的设置，携带时必须是布尔 */
+        && (flip == NULL || cJSON_IsBool(flip))
         && strlen(base->valuestring) < sizeof(config.api_base_url)
         && strlen(device->valuestring) < sizeof(config.device_id) && strlen(json) < sizeof(config.http_headers);
     if (valid) {
         strcpy(config.api_base_url, base->valuestring);
         strcpy(config.device_id, device->valuestring);
         strcpy(config.http_headers, json);
+        if (flip) config.display_flip = cJSON_IsTrue(flip);
         config.legacy_next_url[0] = '\0';
         valid = config_model_validate(&config);
     }

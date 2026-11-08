@@ -68,6 +68,8 @@ bool config_model_validate(const app_config_t *config)
         || !memchr(config->wifi_password, 0, sizeof(config->wifi_password))
         || !memchr(config->legacy_next_url, 0, sizeof(config->legacy_next_url))) return false;
     if (!valid_device(config->device_id) || !valid_headers(config->http_headers)) return false;
+    /* 方向字段只允许 0/1，防止拼接出来的非法状态落库 */
+    if (config->display_flip > 1) return false;
     if (config->api_base_url[0]) {
         if (!config_model_http_url(config->api_base_url) || strpbrk(config->api_base_url, "?#")) return false;
     } else if (!config->legacy_next_url[0]) return false;
@@ -92,9 +94,12 @@ bool config_model_parse(const char *json, app_config_t *out)
     cJSON *root = cJSON_ParseWithOpts(json, NULL, true);
     const cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "schema_version");
     const cJSON *headers = cJSON_GetObjectItemCaseSensitive(root, "headers");
+    const cJSON *flip = cJSON_GetObjectItemCaseSensitive(root, "display_flip");
     app_config_t config = {.schema_version = APP_CONFIG_SCHEMA};
     char *header_json = cJSON_PrintUnformatted(headers);
+    /* display_flip 是可选字段：旧配置缺省按正常方向解析，非布尔值视为损坏 */
     bool valid = cJSON_IsObject(root) && cJSON_IsNumber(version) && version->valuedouble == APP_CONFIG_SCHEMA
+        && (flip == NULL || cJSON_IsBool(flip))
         && field(root, "api_base_url", config.api_base_url, sizeof(config.api_base_url), false)
         && field(root, "device_id", config.device_id, sizeof(config.device_id), false)
         && field(root, "wifi_ssid", config.wifi_ssid, sizeof(config.wifi_ssid), false)
@@ -102,6 +107,7 @@ bool config_model_parse(const char *json, app_config_t *out)
         && field(root, "legacy_next_url", config.legacy_next_url, sizeof(config.legacy_next_url), true)
         && header_json && strlen(header_json) < sizeof(config.http_headers);
     if (valid) {
+        config.display_flip = cJSON_IsTrue(flip);
         strcpy(config.http_headers, header_json);
         valid = config_model_validate(&config);
     }
@@ -119,6 +125,7 @@ char *config_model_json(const app_config_t *config, bool include_wifi)
     bool ok = cJSON_AddNumberToObject(root, "schema_version", config->schema_version)
         && cJSON_AddStringToObject(root, "api_base_url", config->api_base_url)
         && cJSON_AddStringToObject(root, "device_id", config->device_id)
+        && cJSON_AddBoolToObject(root, "display_flip", config->display_flip != 0)
         && cJSON_AddStringToObject(root, "legacy_next_url", config->legacy_next_url)
         && cJSON_AddBoolToObject(root, "migration_required", config->legacy_next_url[0] != 0);
     if (!cJSON_AddItemToObject(root, "headers", headers)) { cJSON_Delete(headers); ok = false; }

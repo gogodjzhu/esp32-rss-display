@@ -38,6 +38,6 @@ add_executable(test_config_store test_config_store.c "${ROOT}/lib/app_config/app
 target_include_directories(test_config_store PRIVATE stubs "${ROOT}/lib/nvs_manager")
 target_compile_options(test_config_store PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(test_config_store PRIVATE models)
-foreach(scenario defaults migration custom legacy-invalid legacy-bad-headers saved corrupt read-failure nvs-init-failure)
+foreach(scenario defaults migration custom legacy-invalid legacy-bad-headers saved flipped corrupt read-failure nvs-init-failure)
     add_test(NAME "config_${scenario}" COMMAND test_config_store "${scenario}")
 endforeach()

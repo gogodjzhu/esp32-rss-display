@@ -3,6 +3,7 @@
 #include "board_led.h"
 #include "button_input.h"
 #include "content_view.h"
+#include "display_driver.h"
 #include "http_server.h"
 #include "network_worker.h"
 #include "ui_animation.h"
@@ -160,10 +161,14 @@ static void connection_screen(const wifi_info_t *wifi)
 
 esp_err_t app_controller_run(void)
 {
-    ui_animation_init();
-    ui_animation_show_loading();
+    /* 配置必须先于显示初始化：倒装方向要在屏幕点亮前就位 */
     esp_err_t err = app_config_init();
     if (err != ESP_OK) return err;
+    app_config_t config;
+    app_config_get_active(&config);
+    display_driver_set_flip(config.display_flip != 0);
+    ui_animation_init();
+    ui_animation_show_loading();
     if ((err = wifi_manager_init()) != ESP_OK || (err = button_input_init()) != ESP_OK
         || (err = board_led_init()) != ESP_OK || (err = network_worker_start()) != ESP_OK) return err;
     if (!http_server_start()) ESP_LOGW(TAG, "管理服务器未启动");

@@ -74,6 +74,15 @@ int main(int argc, char **argv)
         assert(json);
         strcpy(persisted, json);
         free(json);
+    } else if (!strcmp(scenario, "flipped")) {
+        /* 已保存的配置带 180° 翻转设置：加载后按倒装方向生效 */
+        app_config_t config = {.schema_version = APP_CONFIG_SCHEMA,
+            .api_base_url = "https://persisted", .device_id = "saved-device", .http_headers = "[]",
+            .wifi_ssid = "saved-wifi", .display_flip = 1};
+        char *json = config_model_json(&config, true);
+        assert(json);
+        strcpy(persisted, json);
+        free(json);
     } else assert(!strcmp(scenario, "defaults"));
 
     /* 降级路径同样返回 ESP_OK：设备以默认配置开放修复入口，而不是停在错误画面 */
@@ -118,6 +127,9 @@ int main(int argc, char **argv)
     } else if (!strcmp(scenario, "saved")) {
         assert(status.state == APP_CONFIG_LOADED && !app_config_is_degraded());
         assert(!strcmp(active.device_id, "saved-device") && !strcmp(active.wifi_ssid, "saved-wifi") && !writes);
+    } else if (!strcmp(scenario, "flipped")) {
+        assert(status.state == APP_CONFIG_LOADED && !app_config_is_degraded());
+        assert(active.display_flip == 1 && saved.display_flip == 1 && !writes);
     }
 
     if (fail_init) {
@@ -162,6 +174,8 @@ int main(int argc, char **argv)
     app_config_get_saved(&saved);
     assert(!saved.wifi_ssid[0] && !saved.wifi_password[0]);
     assert(config_model_parse(persisted, &saved) && !saved.wifi_ssid[0]);
+    /* 多轮保存与清除 WiFi 之后，方向设置只按场景取值，不被其他保存路径改写 */
+    assert(saved.display_flip == (unsigned)(!strcmp(scenario, "flipped")));
     printf("PASS: config %s, explicit recovery save, atomic failures, saved/active isolation, WiFi reset\n", scenario);
     return 0;
 }
