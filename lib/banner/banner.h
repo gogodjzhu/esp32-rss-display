@@ -33,4 +33,6 @@ void banner_apply_row(uint16_t *pixels, int y, int x, int width);
 void banner_begin_animation(void);
 void banner_tick(void);
 void banner_show_solid(uint32_t color, const banner_content_t *content);
+/* 用当前已完成的排版铺纯色背景（如图片解码失败回退），不重新排版 */
+void banner_paint_solid(uint32_t color);
 #endif

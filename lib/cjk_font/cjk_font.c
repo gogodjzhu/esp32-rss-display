@@ -20,8 +20,11 @@ static const char *TAG = "CJK_FONT";
 
 /* 默认正文字号（像素） */
 #define CJK_FONT_DEFAULT_SIZE 18
-/* 单字号字形缓存条目数 */
-#define CJK_FONT_CACHE_CNT    160
+/* 字形缓存条目数：0 = 不缓存。banner 每周期整表重排并持有全部字形位图，
+ * 由 banner_release 统一释放；启用缓存只会让上百条位图常驻堆中（两个字号
+ * 合计数十 KB），把堆压到图片下载失败甚至 stbtt 断言重启。cache_size=0 时
+ * LVGL 每个字形直接光栅化，内存严格等于活动字形集合，堆预留线由 banner 兜底。 */
+#define CJK_FONT_CACHE_CNT    0
 /* 按字号缓存的上限，避免 ArrayList 化 */
 #define CJK_FONT_MAX_SIZES    6
 

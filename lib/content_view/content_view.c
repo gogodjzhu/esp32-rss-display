@@ -48,9 +48,16 @@ esp_err_t content_view_show(const content_item_t *item, const http_blob_t *jpeg)
     if (jpeg->data) {
         banner_prepare(&content);
         err = jpeg_decoder_render(jpeg->data, jpeg->size, DISPLAY_WIDTH, DISPLAY_HEIGHT, draw_row, NULL);
-        if (err == ESP_OK) banner_begin_animation();
+        if (err == ESP_OK) {
+            banner_begin_animation();
+        } else {
+            /* 解码失败：排版已就绪，铺纯色背景即可。二次排版会在低堆下
+             * 重新光栅化全部字形，正是此前 stbtt 断言崩溃的触发点 */
+            banner_paint_solid(0x203040);
+        }
+    } else {
+        banner_show_solid(0x203040, &content);
     }
-    if (!jpeg->data || err != ESP_OK) banner_show_solid(0x203040, &content);
     ui_animation_update_progress(0);
     return err;
 }

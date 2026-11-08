@@ -5,6 +5,7 @@
 #include "lvgl.h"
 #include "text_utf8.h"
 #include <esp_log.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <stdio.h>
 #include <string.h>
@@ -51,6 +52,16 @@ static void banner_write_row(int x, int y, const uint16_t *pixels, int width)
 #define BANNER_STOCK_UP      0x07E0   /* 绿涨 */
 #define BANNER_STOCK_DOWN    0xF800   /* 红跌 */
 #define BANNER_STOCK_FLAT    0xFFFF
+
+/* 每个字形位图都是独立堆分配（cache=0）。堆逼近预留线时停止新增字形：
+ * 宁可标题少显示几个字，也不让 stbtt/LVGL 在低堆下分配失败触发断言重启。
+ * 预留线覆盖后续 JPEG 解码（约 6KB）与管理请求等瞬时开销。 */
+#define BANNER_HEAP_RESERVE  12288
+
+static bool banner_heap_ok(void)
+{
+    return (int)esp_get_free_heap_size() >= BANNER_HEAP_RESERVE;
+}
 
 /* 首行新鲜度圆点：半径 3px 实心圆盘，画在相对时间文本左侧 */
 #define BANNER_FRESH_DOT_D      7     /* 直径（像素） */
@@ -179,6 +190,7 @@ static bool banner_add_glyph(const lv_font_t *font, uint32_t cp, uint32_t next,
                              uint16_t color, int y_shift)
 {
     if (s_banner_glyph_count >= BANNER_MAX_GLYPHS) return false;
+    if (!banner_heap_ok()) return false;
 
     lv_font_glyph_dsc_t dsc;
     if (!lv_font_get_glyph_dsc(font, &dsc, cp, next)) return false;
@@ -842,10 +854,10 @@ void banner_tick(void)
     if (redraw) banner_redraw();
 }
 
-void banner_show_solid(uint32_t bg_rgb24, const banner_content_t *content)
+/* 用当前已完成的排版铺纯色背景；排版未激活时只铺底色。
+ * 供解码失败回退复用，避免为同一内容二次排版（低堆下重新光栅化全部字形） */
+void banner_paint_solid(uint32_t bg_rgb24)
 {
-    banner_prepare(content);
-
     uint8_t  r = (bg_rgb24 >> 16) & 0xFF;
     uint8_t  g = (bg_rgb24 >>  8) & 0xFF;
     uint8_t  b = (bg_rgb24      ) & 0xFF;
@@ -861,4 +873,10 @@ void banner_show_solid(uint32_t bg_rgb24, const banner_content_t *content)
 
     /* 保留排版与背景底图，交由主循环 tick 驱动滚动动画 */
     banner_begin_animation();
+}
+
+void banner_show_solid(uint32_t bg_rgb24, const banner_content_t *content)
+{
+    banner_prepare(content);
+    banner_paint_solid(bg_rgb24);
 }
