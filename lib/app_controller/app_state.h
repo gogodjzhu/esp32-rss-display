@@ -12,10 +12,12 @@ typedef struct {
     uint32_t item_id;
     int rating;
     int64_t display_deadline, remaining_ms, rating_deadline, feedback_deadline;
+    int64_t display_ms;
     int64_t first_click, last_rating_click;
     bool click_pending, next_requested;
 } app_state_t;
-void app_state_shown(app_state_t *state, uint32_t item_id, int64_t now_ms);
+/* display_ms 为 0 时使用编译期默认展示时长 */
+void app_state_shown(app_state_t *state, uint32_t item_id, int64_t now_ms, uint32_t display_ms);
 app_action_t app_state_button(app_state_t *state, int64_t timestamp_ms);
 app_action_t app_state_tick(app_state_t *state, int64_t now_ms);
 void app_state_rating_done(app_state_t *state, int64_t now_ms);

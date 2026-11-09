@@ -1,14 +1,14 @@
 #include "app_state.h"
 #include "ui_limits.h"
-#define DISPLAY_MS UI_DISPLAY_MS
 #define DOUBLE_CLICK_MS 400
 #define RATING_IDLE_MS 5000
 #define FEEDBACK_MS 1000
 
-void app_state_shown(app_state_t *state, uint32_t item_id, int64_t now_ms)
+void app_state_shown(app_state_t *state, uint32_t item_id, int64_t now_ms, uint32_t display_ms)
 {
+    int64_t duration = display_ms ? display_ms : UI_DISPLAY_MS;
     *state = (app_state_t){.view = APP_NORMAL, .item_id = item_id,
-        .display_deadline = now_ms + DISPLAY_MS, .remaining_ms = DISPLAY_MS};
+        .display_deadline = now_ms + duration, .remaining_ms = duration, .display_ms = duration};
 }
 
 static app_action_t request_next(app_state_t *state)
@@ -75,7 +75,8 @@ void app_state_rating_done(app_state_t *state, int64_t now_ms)
 int app_state_progress(const app_state_t *state, int64_t now_ms)
 {
     int64_t remaining = state->view == APP_NORMAL ? state->display_deadline - now_ms : state->remaining_ms;
+    int64_t duration = state->display_ms > 0 ? state->display_ms : UI_DISPLAY_MS;
     if (remaining <= 0) return 100;
-    if (remaining >= DISPLAY_MS) return 0;
-    return (int)((DISPLAY_MS - remaining) * 100 / DISPLAY_MS);
+    if (remaining >= duration) return 0;
+    return (int)((duration - remaining) * 100 / duration);
 }

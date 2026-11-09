@@ -22,6 +22,8 @@ typedef struct {
     char legacy_next_url[CONFIG_URL_MAX];
     /* 屏幕方向：0 正常，1 整屏 180° 翻转（设备倒装安装）；缺省按正常方向 */
     uint8_t display_flip;
+    /* 每条内容展示多久后请求下一条 next，单位毫秒；0 或旧配置缺省为 UI_DISPLAY_MS */
+    uint32_t next_interval_ms;
 } app_config_t;
 
 bool config_model_validate(const app_config_t *config);

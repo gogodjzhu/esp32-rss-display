@@ -176,6 +176,8 @@ int main(int argc, char **argv)
     assert(config_model_parse(persisted, &saved) && !saved.wifi_ssid[0]);
     /* 多轮保存与清除 WiFi 之后，方向设置只按场景取值，不被其他保存路径改写 */
     assert(saved.display_flip == (unsigned)(!strcmp(scenario, "flipped")));
+    /* 旧配置没有间隔字段时保持 0，不因 WiFi 保存被写成其他值 */
+    assert(saved.next_interval_ms == 0);
     printf("PASS: config %s, explicit recovery save, atomic failures, saved/active isolation, WiFi reset\n", scenario);
     return 0;
 }

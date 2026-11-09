@@ -36,6 +36,10 @@
 </select>
 <div class="help-text">倒装安装时选择翻转，画面与文字整体旋转 180°；保存并重启后生效</div>
 
+<label>新闻更新间隔（秒）</label>
+<input type="number" id="next_interval_sec" min="10" max="600" step="1" value="60">
+<div class="help-text">每条内容展示多久后请求下一条，10～600 秒；保存并重启后生效</div>
+
 <div class="section-title">HTTP Headers</div>
 <div class="help-text">仅附加到后端 API 请求，不用于图片下载；最多 8 项</div>
 <div id="headers-list"></div>
@@ -91,6 +95,8 @@ window.onload = function() {
       document.getElementById('api_base_url').value = d.api_base_url || '';
       document.getElementById('device_id').value = d.device_id || '';
       document.getElementById('display_flip').value = d.display_flip ? '1' : '0';
+      var interval = d.next_interval_ms > 0 ? Math.round(d.next_interval_ms / 1000) : 60;
+      document.getElementById('next_interval_sec').value = interval;
       if (d.migration_required) {
         var hint = document.getElementById('migration');
         hint.style.display = 'block';
@@ -119,12 +125,15 @@ window.onload = function() {
 function saveSettings() {
   var url = document.getElementById('api_base_url').value.trim();
   var device = document.getElementById('device_id').value.trim();
+  var interval = parseInt(document.getElementById('next_interval_sec').value, 10);
   if (!url || !device) { showErr('后端根地址和设备标识不能为空'); return; }
+  if (!interval || interval < 10 || interval > 600) { showErr('新闻更新间隔须为 10～600 秒'); return; }
 
   var body = JSON.stringify({
     api_base_url: url,
     device_id: device,
     display_flip: document.getElementById('display_flip').value === '1',
+    next_interval_sec: interval,
     headers: hdrs.filter(function(h){ return h.k.trim(); })
   });
 

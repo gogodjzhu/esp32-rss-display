@@ -218,12 +218,15 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
     const cJSON *device = cJSON_GetObjectItemCaseSensitive(root, "device_id");
     const cJSON *headers = cJSON_GetObjectItemCaseSensitive(root, "headers");
     const cJSON *flip = cJSON_GetObjectItemCaseSensitive(root, "display_flip");
+    const cJSON *interval = cJSON_GetObjectItemCaseSensitive(root, "next_interval_sec");
     char *json = cJSON_IsArray(headers) ? cJSON_PrintUnformatted(headers) : NULL;
     app_config_t config;
     app_config_get_saved(&config);
     bool valid = cJSON_IsObject(root) && cJSON_IsString(base) && cJSON_IsString(device) && json
-        /* 方向是可选字段：请求未携带时保留已保存的设置，携带时必须是布尔 */
+        /* 方向和刷新间隔都是可选字段：未携带时保留已保存的设置 */
         && (flip == NULL || cJSON_IsBool(flip))
+        && (interval == NULL || (cJSON_IsNumber(interval) && interval->valuedouble >= 1
+            && interval->valuedouble <= 600 && interval->valuedouble == (uint32_t)interval->valuedouble))
         && strlen(base->valuestring) < sizeof(config.api_base_url)
         && strlen(device->valuestring) < sizeof(config.device_id) && strlen(json) < sizeof(config.http_headers);
     if (valid) {
@@ -231,6 +234,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
         strcpy(config.device_id, device->valuestring);
         strcpy(config.http_headers, json);
         if (flip) config.display_flip = cJSON_IsTrue(flip);
+        if (interval) config.next_interval_ms = (uint32_t)interval->valuedouble * 1000;
         config.legacy_next_url[0] = '\0';
         valid = config_model_validate(&config);
     }

@@ -131,7 +131,9 @@ static void receive_results(int64_t now)
         int64_t shown_at = esp_timer_get_time() / 1000;
         s_app.shown_at = shown_at;
         s_app.has_content = true;
-        app_state_shown(&s_app.state, candidate->item.id, shown_at);
+        app_config_t config;
+        app_config_get_active(&config);
+        app_state_shown(&s_app.state, candidate->item.id, shown_at, config.next_interval_ms);
         portENTER_CRITICAL(&s_lock);
         s_snapshot.item = candidate->item;
         s_snapshot.outcome = outcome;

@@ -16,7 +16,7 @@ static app_config_t defaults(void)
 static void test_gestures(void)
 {
     app_state_t state;
-    app_state_shown(&state, 7, 1000);
+    app_state_shown(&state, 7, 1000, 0);
     assert(app_state_button(&state, 1100) == APP_ACTION_NONE);
     assert(app_state_tick(&state, 1499) == APP_ACTION_NONE);
     assert(app_state_button(&state, 1499) == APP_ACTION_RATING);
@@ -26,13 +26,13 @@ static void test_gestures(void)
     assert(state.display_deadline == 66000);
 
     /* 400 毫秒边界按单击处理，慢请求期间重复请求合并 */
-    app_state_shown(&state, 8, 0);
+    app_state_shown(&state, 8, 0, 0);
     app_state_button(&state, 100);
     assert(app_state_button(&state, 500) == APP_ACTION_NEXT);
     assert(app_state_tick(&state, 100000) == APP_ACTION_NONE);
     assert(state.item_id == 8 && state.next_requested);
 
-    app_state_shown(&state, 9, 0);
+    app_state_shown(&state, 9, 0, 0);
     app_state_button(&state, 100);
     assert(app_state_tick(&state, 499) == APP_ACTION_NONE);
     assert(app_state_tick(&state, 500) == APP_ACTION_NEXT);
@@ -41,7 +41,7 @@ static void test_gestures(void)
 static void test_rating(void)
 {
     app_state_t state;
-    app_state_shown(&state, 42, 0);
+    app_state_shown(&state, 42, 0, 0);
     app_state_button(&state, 1000);
     assert(app_state_button(&state, 1200) == APP_ACTION_RATING);
     assert(app_state_button(&state, 1399) == APP_ACTION_NONE);
@@ -59,7 +59,7 @@ static void test_rating(void)
     app_state_rating_done(&state, 30000);
     assert(state.view == APP_NORMAL);
 
-    app_state_shown(&state, 1, 0);
+    app_state_shown(&state, 1, 0, 0);
     app_state_button(&state, 10);
     app_state_button(&state, 20);
     for (int i = 1; i <= 6; i++) {
@@ -74,8 +74,8 @@ static void test_clock(void)
     app_state_t fast, slow;
     /* 单调时钟可能已超过 32 位毫秒范围 */
     const int64_t start = INT64_C(5000000000);
-    app_state_shown(&fast, 1, start);
-    app_state_shown(&slow, 1, start);
+    app_state_shown(&fast, 1, start, 0);
+    app_state_shown(&slow, 1, start, 0);
     for (int64_t t = start; t < start + 60000; t += 40) assert(app_state_tick(&fast, t) == APP_ACTION_NONE);
     assert(app_state_tick(&slow, start + 59999) == APP_ACTION_NONE);
     assert(app_state_tick(&fast, start + 60000) == APP_ACTION_NEXT);
@@ -83,9 +83,16 @@ static void test_clock(void)
     assert(app_state_progress(&fast, start - 1) == 0);
     assert(app_state_progress(&fast, start + 100000) == 100);
     /* 无评分 ID 的内容仍有完整的轮播生命周期 */
-    app_state_shown(&slow, 0, start);
+    app_state_shown(&slow, 0, start, 0);
     assert(slow.view == APP_NORMAL);
     assert(app_state_tick(&slow, start + 60000) == APP_ACTION_NEXT);
+
+    /* 设置页保存的间隔覆盖编译期默认值，进度按该间隔计算 */
+    app_state_shown(&fast, 3, start, 15000);
+    assert(fast.display_ms == 15000 && fast.display_deadline == start + 15000);
+    assert(app_state_tick(&fast, start + 14999) == APP_ACTION_NONE);
+    assert(app_state_progress(&fast, start + 7500) == 50);
+    assert(app_state_tick(&fast, start + 15000) == APP_ACTION_NEXT);
 }
 
 static void test_migration(void)
@@ -192,6 +199,20 @@ static void test_config(void)
     assert(parsed.display_flip == 0);
     assert(!config_model_parse("{\"schema_version\":1,\"api_base_url\":\"http://b\",\"device_id\":\"d\","
         "\"wifi_ssid\":\"\",\"wifi_password\":\"\",\"headers\":[],\"display_flip\":\"yes\"}", &parsed));
+    /* 新闻间隔：旧配置缺省为 0（运行时按 60 秒），合法值往返，越界视为损坏 */
+    assert(parsed.next_interval_ms == 0);
+    config = defaults();
+    config.next_interval_ms = 15000;
+    json = config_model_json(&config, true);
+    assert(json && strstr(json, "\"next_interval_ms\":15000") && config_model_parse(json, &parsed)
+        && parsed.next_interval_ms == 15000);
+    free(json);
+    config.next_interval_ms = 9000;
+    assert(!config_model_validate(&config));
+    config.next_interval_ms = 600001;
+    assert(!config_model_validate(&config));
+    assert(!config_model_parse("{\"schema_version\":1,\"api_base_url\":\"http://b\",\"device_id\":\"d\","
+        "\"wifi_ssid\":\"\",\"wifi_password\":\"\",\"headers\":[],\"next_interval_ms\":9}", &parsed));
     const char *bad_urls[] = {"http://", "http:///path", "http://user:pass@host", "http://host/has space", "file:///a", "http://host\\evil"};
     for (size_t i = 0; i < sizeof(bad_urls) / sizeof(bad_urls[0]); i++) assert(!config_model_http_url(bad_urls[i]));
 }

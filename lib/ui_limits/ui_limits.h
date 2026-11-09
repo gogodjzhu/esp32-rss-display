@@ -9,8 +9,14 @@
  * 常量不一致。修改下面的时长、滚动节奏或 UI_STOCK_LIMIT 即可整体调整。
  */
 
-/* 每条内容的展示时长（毫秒） */
+/*
+ * 每条内容的默认展示时长（毫秒），也是 next 轮播间隔的缺省值。
+ * 片上设置页可在 UI_DISPLAY_MS_MIN～UI_DISPLAY_MS_MAX 内覆盖；
+ * 行情条数仍按这里的编译期上限推导，运行时缩短间隔只是提前切下一条。
+ */
 #define UI_DISPLAY_MS        60000
+#define UI_DISPLAY_MS_MIN    10000
+#define UI_DISPLAY_MS_MAX    600000
 /* 每条行情的停留时间和上下滚动动画时长（毫秒） */
 #define UI_STOCK_HOLD_MS     2500
 #define UI_STOCK_SCROLL_MS   450
@@ -38,6 +44,8 @@
 #define UI_STOCK_GLYPHS       18
 #define UI_BANNER_MAX_GLYPHS  (UI_TITLE_GLYPHS + UI_STOCK_MAX * UI_STOCK_GLYPHS)
 
+_Static_assert(UI_DISPLAY_MS >= UI_DISPLAY_MS_MIN && UI_DISPLAY_MS <= UI_DISPLAY_MS_MAX,
+               "默认展示时长必须落在设置页允许的范围内");
 _Static_assert(UI_STOCK_MAX >= 1, "展示周期不足以滚动一条行情");
 _Static_assert(UI_STOCK_MAX * UI_STOCK_SLOT_MS <= UI_DISPLAY_MS,
                "行情条数超过一次展示周期可完整滚完的数量");
