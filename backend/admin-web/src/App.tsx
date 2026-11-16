@@ -27,6 +27,7 @@ import { useThemeMode } from './theme';
 import type { ThemeMode } from './theme';
 import { OverviewPage } from './pages/OverviewPage';
 import { FeedsPage } from './pages/FeedsPage';
+import { StocksPage } from './pages/StocksPage';
 
 const { Text } = Typography;
 
@@ -140,6 +141,11 @@ function Shell({ mode, onModeChange }: ShellProps) {
                   onChanged={() => void reload(true)}
                 />
               ),
+            },
+            {
+              key: 'stocks',
+              label: '行情',
+              children: <StocksPage active={tab === 'stocks'} />,
             },
           ]}
         />

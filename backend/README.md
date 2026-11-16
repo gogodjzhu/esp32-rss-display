@@ -15,9 +15,15 @@ curl -X POST -H 'Content-Type: application/json' \
 curl http://localhost:8080/nfc/dev-demo
 curl http://localhost:8080/metrics
 
-# 行情栏：config.yaml 的 stocks.symbols 填腾讯行情编号（sh/sz/bj/hk/us 前缀），
-# 后端每 refresh_seconds 秒拉取一次并缓存全部行情；next 的 size 参数指定本次
-# 返回条数（缺省 3），后端按设备轮换窗口。name 可覆盖数据源名称。
+# 行情栏：编号在管理页「行情」tab 配置，也可用下面的接口读取/保存；
+# config.yaml 的 stocks 只作为首次启动的种子，之后以数据库为准。
+# 编号格式：sh/sz/bj 为 A 股与指数，hk 为港股，us 为美股；name 可覆盖数据源名称。
+# 保存后立即生效，后台按 refresh_seconds 秒拉取（默认 30，最小 5）并缓存。
+curl -s http://localhost:8080/admin/stocks | jq .
+curl -s -X PUT -H 'Content-Type: application/json' \
+     -d '{"enabled":true,"refresh_seconds":30,"symbols":[{"code":"sh000001","name":"上证"}]}' \
+     http://localhost:8080/admin/stocks | jq .
+# next 的 size 参数指定本次返回条数（缺省 3），后端按设备轮换窗口
 curl -s 'http://localhost:8080/v1/device/dev-demo/next?size=6' | jq .stocks
 
 # 订阅源管理：config.yaml 只做首次种子，日常增删改走接口（下一轮抓取生效）
@@ -51,6 +57,8 @@ curl -s -X POST -H 'Content-Type: application/json' \
 # - 「订阅源」表格：状态、最近成功、最近新内容、条目数、展示/NFC/评分、最近错误；
 #   操作收进下拉菜单，点击行打开该源已抓取条目的抽屉
 # - 新增订阅源必须先「校验并预览」，后端同时会在创建时再校验一次
+# - 「行情」tab：启用开关、刷新间隔、编号增删与轮播顺序，保存后立即生效；
+#   同时展示最近一次拉取的成败、缓存条数与数据源没有返回的编号
 # - 支持亮色/暗色/跟随系统主题，移动端表格横向滚动、抽屉全屏
 # - 前端源码在 backend/admin-web/（Vite + React + Ant Design + Recharts），
 #   构建产物 server/admin/static/ 已入库；改前端后执行：

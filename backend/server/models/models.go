@@ -75,6 +75,21 @@ func (DeviceItemView) TableName() string {
 	return "device_item_views"
 }
 
+// StockSetting 保存管理页编辑的行情配置，固定只有一行（id=1）。
+// config.yaml 的 stocks 只作为首次启动的种子；之后以本表为准，
+// 页面上的改动能活过重启。Symbols 以 JSON 数组存储，SQLite/MySQL 通用。
+type StockSetting struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	Enabled        bool      `gorm:"column:enabled" json:"enabled"`
+	RefreshSeconds int       `gorm:"column:refresh_seconds" json:"refresh_seconds"`
+	Symbols        string    `gorm:"column:symbols;type:text" json:"symbols"`
+	UpdatedAt      time.Time `gorm:"column:updated_at" json:"updated_at"`
+}
+
+func (StockSetting) TableName() string {
+	return "stock_settings"
+}
+
 // ItemNfcOpen 记录某台设备对某条目的 NFC 打开次数，作为标题浮层新鲜度的依据：
 // 0 次绿色、1 次黄色、>=2 次红色；与条目的发布年龄取较旧一档。
 type ItemNfcOpen struct {

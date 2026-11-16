@@ -82,3 +82,30 @@ export interface FeedInput {
   url: string;
   enabled: boolean;
 }
+
+// 行情配置：与 /admin/stocks 的响应保持一致。runtime 只读，是后台拉取状态。
+export interface StockSymbol {
+  code: string;
+  name: string;
+}
+
+export interface StockRuntime {
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  quote_count: number;
+  last_error?: string;
+  missing_codes?: string[];
+}
+
+export interface StockConfig {
+  enabled: boolean;
+  refresh_seconds: number;
+  symbols: StockSymbol[];
+  runtime: StockRuntime;
+}
+
+export interface StockConfigInput {
+  enabled: boolean;
+  refresh_seconds: number;
+  symbols: StockSymbol[];
+}
