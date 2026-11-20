@@ -15,7 +15,9 @@ import (
 	"github.com/esp32-rss-display/backend/server/image"
 	"github.com/esp32-rss-display/backend/server/models"
 	rssworker "github.com/esp32-rss-display/backend/server/rss"
+	"github.com/esp32-rss-display/backend/server/settings"
 	"github.com/esp32-rss-display/backend/server/stocks"
+	"github.com/esp32-rss-display/backend/server/translate"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 )
@@ -54,6 +56,11 @@ func runServer(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
+	// 管理页可在线修改的配置（目前是标题翻译开关）存在数据库里，启动时载入。
+	if err := settings.Load(database.GetDB()); err != nil {
+		log.Fatalf("Failed to load app settings: %v", err)
+	}
+
 	api.SetImageDir(imageDir)
 	initFeeds(cfg.Feeds)
 
@@ -71,12 +78,19 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
 	mux.HandleFunc("GET /admin/feeds/{id}/items", api.AdminFeedItems)
 	mux.HandleFunc("POST /admin/feeds/preview", api.AdminPreviewFeed)
+	mux.HandleFunc("GET /admin/config", api.GetAdminConfig)
+	mux.HandleFunc("PUT /admin/config", api.UpdateAdminConfig)
 	admin.Mount(mux)
 	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	log.Printf("Starting server on %s", addr)
+
+	// 标题翻译在后台补译：先注入服务再启动抓取循环，抓取结束后会主动唤醒。
+	translationService := translate.NewService(database.GetDB(), translate.NewClient())
+	translate.SetService(translationService)
+	translationService.Start()
 
 	worker := rssworker.New(&cfg.RSS, imageDir)
 	worker.Start()
@@ -99,6 +113,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	<-quit
 
 	worker.Stop()
+	translationService.Stop()
 	stockService.Stop()
 	log.Println("Server stopped")
 }

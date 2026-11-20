@@ -12,6 +12,7 @@ import (
 	"github.com/esp32-rss-display/backend/server/database"
 	"github.com/esp32-rss-display/backend/server/metrics"
 	"github.com/esp32-rss-display/backend/server/models"
+	"github.com/esp32-rss-display/backend/server/settings"
 	"github.com/esp32-rss-display/backend/server/stocks"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -201,7 +202,7 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 
 	resp := NextItemResponse{
 		ItemID:      item.ID,
-		Title:       item.Title,
+		Title:       displayTitle(item),
 		ImageURL:    imageURL,
 		Source:      feed.Name,
 		PublishedAt: pubTime.Local().Format("2006-01-02 15:04"),
@@ -215,6 +216,15 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// displayTitle 在翻译开关开启且已有缓存译文时返回中文标题；
+// 其余情况（关闭、尚未翻译、翻译失败）一律返回原标题。
+func displayTitle(item *models.Item) string {
+	if settings.TranslationEnabled() && item.TranslatedTitle != "" {
+		return item.TranslatedTitle
+	}
+	return item.Title
 }
 
 // stockWindowSize 解析可选的 size 查询参数：缺失或非法时回退默认值，

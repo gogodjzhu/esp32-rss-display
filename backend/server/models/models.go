@@ -43,10 +43,28 @@ type Item struct {
 	ImagePath   string     `gorm:"column:image_path" json:"image_path"`
 	PublishedAt *time.Time `gorm:"column:published_at" json:"published_at"`
 	CreatedAt   time.Time  `gorm:"column:created_at" json:"created_at"`
+	// TranslatedTitle 为开启标题自动翻译后缓存的译文；非英文标题会原样写入，
+	// 空串表示尚未处理。设备端 next 接口按配置决定是否用它替代原标题。
+	TranslatedTitle string `gorm:"column:translated_title" json:"translated_title,omitempty"`
+	// TranslationAttemptedAt 记录最近一次翻译尝试（成功或失败），
+	// 失败后按固定间隔重试，避免每轮抓取都重复调用翻译接口。
+	TranslationAttemptedAt *time.Time `gorm:"column:translation_attempted_at" json:"translation_attempted_at,omitempty"`
 }
 
 func (Item) TableName() string {
 	return "items"
+}
+
+// AppSettings 是管理页「配置」tab 维护的运行期配置，单行表（ID 恒为 1）。
+// config.yaml 不再承载这些可在线修改的开关，避免文件与数据库两份状态。
+type AppSettings struct {
+	ID                 uint      `gorm:"primaryKey" json:"-"`
+	TranslationEnabled bool      `gorm:"column:translation_enabled" json:"translation_enabled"`
+	UpdatedAt          time.Time `gorm:"column:updated_at" json:"updated_at"`
+}
+
+func (AppSettings) TableName() string {
+	return "app_settings"
 }
 
 type ItemRating struct {

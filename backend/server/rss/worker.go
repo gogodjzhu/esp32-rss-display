@@ -21,6 +21,7 @@ import (
 	"github.com/esp32-rss-display/backend/server/database"
 	"github.com/esp32-rss-display/backend/server/metrics"
 	"github.com/esp32-rss-display/backend/server/models"
+	"github.com/esp32-rss-display/backend/server/translate"
 	"github.com/mattn/go-isatty"
 	"github.com/mmcdole/gofeed"
 	"golang.org/x/image/draw"
@@ -213,6 +214,9 @@ func (w *Worker) fetchFeed(feed models.Feed) {
 
 		metrics.RSSItemsParsedTotal.Add(1)
 	}
+
+	// 抓取结束后唤醒后台翻译；开关关闭时服务会直接忽略。
+	translate.Notify()
 }
 
 // markFeedOK/markFeedError 维护订阅源的健康状态，供 /admin/status 展示。
