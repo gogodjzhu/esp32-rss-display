@@ -2,6 +2,7 @@ package rssworker
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -150,6 +151,9 @@ func (w *Worker) fetchAllFeeds() {
 	for _, feed := range feeds {
 		w.fetchFeed(feed)
 	}
+
+	// 抓取结束后补译新条目；开关关闭时函数会直接返回。
+	translate.Pending(context.Background(), database.GetDB())
 }
 
 func (w *Worker) fetchFeed(feed models.Feed) {
@@ -214,9 +218,6 @@ func (w *Worker) fetchFeed(feed models.Feed) {
 
 		metrics.RSSItemsParsedTotal.Add(1)
 	}
-
-	// 抓取结束后唤醒后台翻译；开关关闭时服务会直接忽略。
-	translate.Notify()
 }
 
 // markFeedOK/markFeedError 维护订阅源的健康状态，供 /admin/status 展示。

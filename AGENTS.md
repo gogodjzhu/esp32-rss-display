@@ -70,7 +70,7 @@ go mod tidy                                         # 同步依赖
 - `POST /admin/feeds/preview` — 新增订阅源前的真实抓取校验，返回源标题与样例条目
 - `GET /admin/config` / `PUT /admin/config` — 管理页「配置」tab 的运行期配置；目前是 `translation_enabled`（RSS 标题英译中开关）
 
-**标题翻译：** `/admin/config` 的 `translation_enabled` 保存在数据库单行表 `app_settings`（首次启动默认关闭），保存后立即生效。开启后后台服务分批把保留期内的英文条目标题调用免 Key 的公开翻译接口（Google 优先、MyMemory 兜底）译成中文并缓存到 `items.translated_title`；`next` 在开关开启且有条目译文时返回译文，其余情况（关闭、尚未翻译、接口失败）返回原标题。翻译不在 `next` 请求内同步执行，接口失败只回退原文，不影响内容展示。
+**标题翻译：** `/admin/config` 的 `translation_enabled` 保存在数据库单行表 `app_settings`（首次启动默认关闭），保存后立即生效。开启后抓取结束以及打开开关时会调用免 Key 的公开翻译接口（Google 优先、MyMemory 兜底），分批把保留期内的英文条目标题译成中文并缓存到 `items.translated_title`；`next` 在开关开启且条目有译文时返回译文，其余情况（关闭、尚未翻译、接口失败）返回原标题。翻译不在 `next` 请求内同步执行，接口失败只回退原文。
 
 **管理页前端：** 源码在 `backend/admin-web/`（Vite + React + Ant Design + Recharts），构建产物提交到 `server/admin/static/` 并由 `go:embed` 打进二进制——Go 构建与 Docker 不需要 Node。改完前端需重新构建：
 

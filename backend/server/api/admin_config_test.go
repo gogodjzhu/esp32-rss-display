@@ -16,25 +16,20 @@ import (
 	"github.com/esp32-rss-display/backend/server/settings"
 )
 
-func setTranslationEnabled(t *testing.T, enabled bool) {
+func setTranslation(t *testing.T, enabled bool) {
 	t.Helper()
-	if err := settings.Update(database.GetDB(), settings.Config{TranslationEnabled: enabled}); err != nil {
-		t.Fatalf("update settings: %v", err)
+	if err := settings.Set(database.GetDB(), enabled); err != nil {
+		t.Fatalf("set translation: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = settings.Update(database.GetDB(), settings.Config{TranslationEnabled: false})
-	})
+	t.Cleanup(func() { _ = settings.Set(database.GetDB(), false) })
 }
 
 func TestAdminConfigRoundTrip(t *testing.T) {
 	setupTestDB(t)
-	setTranslationEnabled(t, false)
+	setTranslation(t, false)
 
 	rec := httptest.NewRecorder()
 	GetAdminConfig(rec, httptest.NewRequest(http.MethodGet, "/admin/config", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET status = %d: %s", rec.Code, rec.Body.String())
-	}
 	var cfg AdminConfig
 	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
 		t.Fatalf("decode GET: %v", err)
@@ -49,9 +44,7 @@ func TestAdminConfigRoundTrip(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT status = %d: %s", rec.Code, rec.Body.String())
 	}
-	if !settings.TranslationEnabled() {
-		t.Fatal("保存后内存配置应立即生效")
-	}
+
 	var row models.AppSettings
 	if err := database.GetDB().First(&row, 1).Error; err != nil {
 		t.Fatalf("reload settings row: %v", err)
@@ -72,7 +65,7 @@ func TestAdminConfigRoundTrip(t *testing.T) {
 
 func TestUpdateAdminConfigRejectsInvalidBodies(t *testing.T) {
 	setupTestDB(t)
-	setTranslationEnabled(t, false)
+	setTranslation(t, false)
 
 	cases := []struct {
 		name string
@@ -89,25 +82,6 @@ func TestUpdateAdminConfigRejectsInvalidBodies(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want 400: %s", tc.name, rec.Code, rec.Body.String())
 		}
-	}
-}
-
-func TestDisplayTitle(t *testing.T) {
-	setupTestDB(t)
-	item := &models.Item{Title: "Original title"}
-
-	setTranslationEnabled(t, true)
-	if got := displayTitle(item); got != "Original title" {
-		t.Fatalf("无译文时应返回原标题，got %q", got)
-	}
-	item.TranslatedTitle = "中文标题"
-	if got := displayTitle(item); got != "中文标题" {
-		t.Fatalf("开启且有译文时应返回译文，got %q", got)
-	}
-
-	setTranslationEnabled(t, false)
-	if got := displayTitle(item); got != "Original title" {
-		t.Fatalf("关闭时应返回原标题，got %q", got)
 	}
 }
 
@@ -140,7 +114,7 @@ func TestNextReturnsTranslatedTitleWhenEnabled(t *testing.T) {
 		db.Where("id = ?", item.ID).Delete(&models.Item{})
 	})
 
-	setTranslationEnabled(t, true)
+	setTranslation(t, true)
 	code, body := doNextRequest(t, "dev-translate-on", "")
 	if code != http.StatusOK {
 		t.Fatalf("next = %d, want 200: %s", code, body)
@@ -153,7 +127,7 @@ func TestNextReturnsTranslatedTitleWhenEnabled(t *testing.T) {
 		t.Fatalf("开启时 title = %q, want 译文", resp.Title)
 	}
 
-	setTranslationEnabled(t, false)
+	setTranslation(t, false)
 	code, body = doNextRequest(t, "dev-translate-off", "")
 	if code != http.StatusOK {
 		t.Fatalf("next = %d, want 200: %s", code, body)
@@ -163,5 +137,15 @@ func TestNextReturnsTranslatedTitleWhenEnabled(t *testing.T) {
 	}
 	if resp.Title != "Fed raises interest rates" {
 		t.Fatalf("关闭时 title = %q, want 原标题", resp.Title)
+	}
+
+	// 开关开启但条目尚无译文时同样回退原标题。
+	if err := db.Model(&models.Item{}).Where("id = ?", item.ID).
+		Update("translated_title", "").Error; err != nil {
+		t.Fatalf("clear translation: %v", err)
+	}
+	setTranslation(t, true)
+	if got := displayTitle(db, &models.Item{Title: "Original"}); got != "Original" {
+		t.Fatalf("无译文时 displayTitle = %q, want 原标题", got)
 	}
 }

@@ -202,7 +202,7 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 
 	resp := NextItemResponse{
 		ItemID:      item.ID,
-		Title:       displayTitle(item),
+		Title:       displayTitle(db, item),
 		ImageURL:    imageURL,
 		Source:      feed.Name,
 		PublishedAt: pubTime.Local().Format("2006-01-02 15:04"),
@@ -220,8 +220,8 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 
 // displayTitle 在翻译开关开启且已有缓存译文时返回中文标题；
 // 其余情况（关闭、尚未翻译、翻译失败）一律返回原标题。
-func displayTitle(item *models.Item) string {
-	if settings.TranslationEnabled() && item.TranslatedTitle != "" {
+func displayTitle(db *gorm.DB, item *models.Item) string {
+	if item.TranslatedTitle != "" && settings.Get(db) {
 		return item.TranslatedTitle
 	}
 	return item.Title

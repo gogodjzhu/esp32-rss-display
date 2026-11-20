@@ -2,10 +2,11 @@ package api
 
 // 管理页「配置」tab 的读写接口。
 //
-// 配置保存在数据库（settings 包），保存后立即生效；翻译开关打开时会唤醒
-// 后台补译任务，历史条目按保留期逐批翻译，新条目在抓取结束后自动处理。
+// 配置保存在数据库（settings 包），保存后立即生效；翻译开关打开时会
+// 异步补译历史条目，新条目在抓取结束后自动处理。
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -24,7 +25,7 @@ type AdminConfig struct {
 // GetAdminConfig 返回当前配置。
 func GetAdminConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, AdminConfig{
-		TranslationEnabled: settings.TranslationEnabled(),
+		TranslationEnabled: settings.Get(database.GetDB()),
 	})
 }
 
@@ -50,16 +51,14 @@ func UpdateAdminConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := settings.Current()
-	cfg.TranslationEnabled = *req.TranslationEnabled
-	if err := settings.Update(database.GetDB(), cfg); err != nil {
+	if err := settings.Set(database.GetDB(), *req.TranslationEnabled); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// 开启后立即补译历史条目；关闭时保留已缓存的译文，重新开启可继续使用。
-	if cfg.TranslationEnabled {
-		translate.Notify()
+	// 开启后异步回填历史条目；关闭时保留已缓存译文，重新开启可继续使用。
+	if *req.TranslationEnabled {
+		go translate.Backfill(context.Background(), database.GetDB())
 	}
-	writeJSON(w, http.StatusOK, AdminConfig{TranslationEnabled: cfg.TranslationEnabled})
+	writeJSON(w, http.StatusOK, AdminConfig{TranslationEnabled: *req.TranslationEnabled})
 }

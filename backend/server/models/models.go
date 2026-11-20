@@ -43,12 +43,8 @@ type Item struct {
 	ImagePath   string     `gorm:"column:image_path" json:"image_path"`
 	PublishedAt *time.Time `gorm:"column:published_at" json:"published_at"`
 	CreatedAt   time.Time  `gorm:"column:created_at" json:"created_at"`
-	// TranslatedTitle 为开启标题自动翻译后缓存的译文；非英文标题会原样写入，
-	// 空串表示尚未处理。设备端 next 接口按配置决定是否用它替代原标题。
+	// TranslatedTitle 为标题的缓存译文；非英文标题会写入原文，空串表示尚未处理。
 	TranslatedTitle string `gorm:"column:translated_title" json:"translated_title,omitempty"`
-	// TranslationAttemptedAt 记录最近一次翻译尝试（成功或失败），
-	// 失败后按固定间隔重试，避免每轮抓取都重复调用翻译接口。
-	TranslationAttemptedAt *time.Time `gorm:"column:translation_attempted_at" json:"translation_attempted_at,omitempty"`
 }
 
 func (Item) TableName() string {
