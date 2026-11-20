@@ -2,6 +2,7 @@ package rssworker
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/esp32-rss-display/backend/server/database"
 	"github.com/esp32-rss-display/backend/server/metrics"
 	"github.com/esp32-rss-display/backend/server/models"
+	"github.com/esp32-rss-display/backend/server/translate"
 	"github.com/mattn/go-isatty"
 	"github.com/mmcdole/gofeed"
 	"golang.org/x/image/draw"
@@ -149,6 +151,9 @@ func (w *Worker) fetchAllFeeds() {
 	for _, feed := range feeds {
 		w.fetchFeed(feed)
 	}
+
+	// 抓取结束后补译新条目；开关关闭时函数会直接返回。
+	translate.Pending(context.Background(), database.GetDB())
 }
 
 func (w *Worker) fetchFeed(feed models.Feed) {

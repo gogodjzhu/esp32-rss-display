@@ -43,10 +43,24 @@ type Item struct {
 	ImagePath   string     `gorm:"column:image_path" json:"image_path"`
 	PublishedAt *time.Time `gorm:"column:published_at" json:"published_at"`
 	CreatedAt   time.Time  `gorm:"column:created_at" json:"created_at"`
+	// TranslatedTitle 为标题的缓存译文；非英文标题会写入原文，空串表示尚未处理。
+	TranslatedTitle string `gorm:"column:translated_title" json:"translated_title,omitempty"`
 }
 
 func (Item) TableName() string {
 	return "items"
+}
+
+// AppSettings 是管理页「配置」tab 维护的运行期配置，单行表（ID 恒为 1）。
+// config.yaml 不再承载这些可在线修改的开关，避免文件与数据库两份状态。
+type AppSettings struct {
+	ID                 uint      `gorm:"primaryKey" json:"-"`
+	TranslationEnabled bool      `gorm:"column:translation_enabled" json:"translation_enabled"`
+	UpdatedAt          time.Time `gorm:"column:updated_at" json:"updated_at"`
+}
+
+func (AppSettings) TableName() string {
+	return "app_settings"
 }
 
 type ItemRating struct {

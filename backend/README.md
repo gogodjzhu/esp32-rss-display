@@ -46,10 +46,20 @@ curl -s -X POST -H 'Content-Type: application/json' \
      -d '{"url":"https://news.ycombinator.com/rss"}' \
      http://localhost:8080/admin/feeds/preview | jq .
 
+# 运行期配置：管理页「配置」tab 读写；RSS 标题翻译开关保存在数据库，保存即生效
+curl -s http://localhost:8080/admin/config | jq .
+curl -s -X PUT -H 'Content-Type: application/json' \
+     -d '{"translation_enabled":true}' http://localhost:8080/admin/config | jq .
+# 开关开启后，后台分批把英文标题译为中文；next 返回翻译后的 title，
+# 尚未翻译或接口失败时回退原标题。翻译不会阻塞 next 请求。
+curl -s http://localhost:8080/v1/device/dev-demo/next | jq .title
+
 # 管理页面：浏览器打开 http://localhost:8080/admin/
 # - 「概览」默认打开：条目/设备/评分/存储规模、近 14 天新增与评分分布图表、异常源摘要
 # - 「订阅源」表格：状态、最近成功、最近新内容、条目数、展示/NFC/评分、最近错误；
 #   操作收进下拉菜单，点击行打开该源已抓取条目的抽屉
+# - 「配置」tab：在线修改运行期配置（目前为 RSS 标题英文→中文自动翻译开关），
+#   保存到数据库单行表 app_settings，重启不丢失
 # - 新增订阅源必须先「校验并预览」，后端同时会在创建时再校验一次
 # - 支持亮色/暗色/跟随系统主题，移动端表格横向滚动、抽屉全屏
 # - 前端源码在 backend/admin-web/（Vite + React + Ant Design + Recharts），

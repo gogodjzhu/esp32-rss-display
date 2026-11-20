@@ -82,3 +82,7 @@ export interface FeedInput {
   url: string;
   enabled: boolean;
 }
+
+export interface AdminConfig {
+  translation_enabled: boolean;
+}

@@ -1,4 +1,5 @@
 import type {
+  AdminConfig,
   AdminItemList,
   AdminStatus,
   FeedInput,
@@ -42,6 +43,11 @@ function jsonRequest<T>(path: string, method: string, body: unknown): Promise<T>
 
 export const api = {
   status: () => request<AdminStatus>('/admin/status'),
+
+  config: () => request<AdminConfig>('/admin/config'),
+
+  updateConfig: (input: AdminConfig) =>
+    jsonRequest<AdminConfig>('/admin/config', 'PUT', input),
 
   preview: (url: string) => jsonRequest<FeedPreview>('/admin/feeds/preview', 'POST', { url }),
 

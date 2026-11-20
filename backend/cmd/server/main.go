@@ -71,6 +71,8 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
 	mux.HandleFunc("GET /admin/feeds/{id}/items", api.AdminFeedItems)
 	mux.HandleFunc("POST /admin/feeds/preview", api.AdminPreviewFeed)
+	mux.HandleFunc("GET /admin/config", api.GetAdminConfig)
+	mux.HandleFunc("PUT /admin/config", api.UpdateAdminConfig)
 	admin.Mount(mux)
 	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)
