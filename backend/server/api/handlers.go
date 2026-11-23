@@ -199,9 +199,18 @@ func GetNextItem(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[next] 更新设备游标失败 device=%s: %v", deviceID, err)
 	}
 
+	title := item.Title
+	if item.TranslatedTitle != "" {
+		if cfg, err := database.GetSettings(db); err != nil {
+			log.Printf("[next] 读取翻译配置失败: %v", err)
+		} else if cfg.TranslationEnabled {
+			title = item.TranslatedTitle
+		}
+	}
+
 	resp := NextItemResponse{
 		ItemID:      item.ID,
-		Title:       item.Title,
+		Title:       title,
 		ImageURL:    imageURL,
 		Source:      feed.Name,
 		PublishedAt: pubTime.Local().Format("2006-01-02 15:04"),

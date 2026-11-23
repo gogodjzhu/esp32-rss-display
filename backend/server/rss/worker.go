@@ -54,6 +54,12 @@ type Worker struct {
 	imageDir      string
 	useCatmullRom bool
 	stopCh        chan struct{}
+	afterFetch    func()
+}
+
+// SetAfterFetch 在启动前注册抓取完成通知，回调应立即返回。
+func (w *Worker) SetAfterFetch(fn func()) {
+	w.afterFetch = fn
 }
 
 func New(cfg *config.RSSConfig, imageDir string) *Worker {
@@ -148,6 +154,9 @@ func (w *Worker) fetchAllFeeds() {
 
 	for _, feed := range feeds {
 		w.fetchFeed(feed)
+	}
+	if w.afterFetch != nil {
+		w.afterFetch()
 	}
 }
 

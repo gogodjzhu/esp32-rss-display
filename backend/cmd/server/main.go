@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/esp32-rss-display/backend/server/models"
 	rssworker "github.com/esp32-rss-display/backend/server/rss"
 	"github.com/esp32-rss-display/backend/server/stocks"
+	"github.com/esp32-rss-display/backend/server/translate"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 )
@@ -57,6 +59,15 @@ func runServer(cmd *cobra.Command, args []string) {
 	api.SetImageDir(imageDir)
 	initFeeds(cfg.Feeds)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	translationService := translate.NewService(database.GetDB(), translate.NewClient().Translate, cfg.RSS.MaxAgeDuration())
+	translationDone := make(chan struct{})
+	go func() {
+		defer close(translationDone)
+		translationService.Run(ctx)
+	}()
+
 	mux := http.NewServeMux()
 
 	mux.Handle("/metrics", promhttp.Handler())
@@ -71,6 +82,8 @@ func runServer(cmd *cobra.Command, args []string) {
 	mux.HandleFunc("GET /admin/status", api.AdminStatusHandler)
 	mux.HandleFunc("GET /admin/feeds/{id}/items", api.AdminFeedItems)
 	mux.HandleFunc("POST /admin/feeds/preview", api.AdminPreviewFeed)
+	mux.HandleFunc("GET /admin/config", api.GetAdminConfig)
+	mux.HandleFunc("PUT /admin/config", api.PutAdminConfig(translationService.Notify))
 	admin.Mount(mux)
 	image.Mount(mux, imageDir)
 	mux.HandleFunc("GET /nfc/{device_id}", api.NFCRedirect)
@@ -79,6 +92,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	log.Printf("Starting server on %s", addr)
 
 	worker := rssworker.New(&cfg.RSS, imageDir)
+	worker.SetAfterFetch(translationService.Notify)
 	worker.Start()
 
 	// 行情服务使用内存快照，启动失败或未配置时 next 响应不携带 stocks
@@ -99,6 +113,8 @@ func runServer(cmd *cobra.Command, args []string) {
 	<-quit
 
 	worker.Stop()
+	cancel()
+	<-translationDone
 	stockService.Stop()
 	log.Println("Server stopped")
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 )
 
@@ -51,6 +52,7 @@ func Init(cfg *config.DatabaseConfig) error {
 		&models.ItemRating{},
 		&models.DeviceItemView{},
 		&models.ItemNfcOpen{},
+		&models.AppSettings{},
 	); err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
@@ -99,6 +101,22 @@ func ensureDSNDir(cfg *config.DatabaseConfig) error {
 
 func GetDB() *gorm.DB {
 	return DB
+}
+
+// GetSettings 在尚未保存时返回默认关闭的配置。
+func GetSettings(db *gorm.DB) (models.AppSettings, error) {
+	cfg := models.AppSettings{ID: 1}
+	err := db.Limit(1).Find(&cfg, 1).Error
+	return cfg, err
+}
+
+func SaveSettings(db *gorm.DB, enabled bool) (models.AppSettings, error) {
+	cfg := models.AppSettings{ID: 1, TranslationEnabled: enabled}
+	err := db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{"translation_enabled"}),
+	}).Create(&cfg).Error
+	return cfg, err
 }
 
 // Cleanup 清理超过 maxAge 的条目及其评分/曝光记录，再回收不再被任何条目

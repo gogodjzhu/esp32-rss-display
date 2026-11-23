@@ -82,3 +82,9 @@ export interface FeedInput {
   url: string;
   enabled: boolean;
 }
+
+/** 与后端 /admin/config 的响应保持一致。 */
+export interface AdminConfig {
+  /** 英文标题翻译开关；开启后后台排队翻译，关闭时设备端一律使用原标题。 */
+  translation_enabled: boolean;
+}
