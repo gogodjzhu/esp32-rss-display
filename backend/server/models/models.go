@@ -36,17 +36,28 @@ func (Feed) TableName() string {
 }
 
 type Item struct {
-	ID          uint       `gorm:"primaryKey" json:"id"`
-	FeedID      uint       `gorm:"column:feed_id" json:"feed_id"`
-	Title       string     `gorm:"column:title" json:"title"`
-	URL         string     `gorm:"column:url" json:"url"`
-	ImagePath   string     `gorm:"column:image_path" json:"image_path"`
-	PublishedAt *time.Time `gorm:"column:published_at" json:"published_at"`
-	CreatedAt   time.Time  `gorm:"column:created_at" json:"created_at"`
+	ID              uint       `gorm:"primaryKey" json:"id"`
+	FeedID          uint       `gorm:"column:feed_id" json:"feed_id"`
+	Title           string     `gorm:"column:title" json:"title"`
+	TranslatedTitle string     `gorm:"column:translated_title;type:text" json:"translated_title"`
+	URL             string     `gorm:"column:url" json:"url"`
+	ImagePath       string     `gorm:"column:image_path" json:"image_path"`
+	PublishedAt     *time.Time `gorm:"column:published_at" json:"published_at"`
+	CreatedAt       time.Time  `gorm:"column:created_at" json:"created_at"`
 }
 
 func (Item) TableName() string {
 	return "items"
+}
+
+// AppSettings 只使用 ID=1 的单行记录，保存可在管理页即时修改的配置。
+type AppSettings struct {
+	ID                 uint `gorm:"primaryKey" json:"-"`
+	TranslationEnabled bool `gorm:"column:translation_enabled;not null;default:false" json:"translation_enabled"`
+}
+
+func (AppSettings) TableName() string {
+	return "app_settings"
 }
 
 type ItemRating struct {

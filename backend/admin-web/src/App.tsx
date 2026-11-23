@@ -27,6 +27,7 @@ import { useThemeMode } from './theme';
 import type { ThemeMode } from './theme';
 import { OverviewPage } from './pages/OverviewPage';
 import { FeedsPage } from './pages/FeedsPage';
+import { ConfigPage } from './pages/ConfigPage';
 
 const { Text } = Typography;
 
@@ -140,6 +141,11 @@ function Shell({ mode, onModeChange }: ShellProps) {
                   onChanged={() => void reload(true)}
                 />
               ),
+            },
+            {
+              key: 'config',
+              label: '配置',
+              children: <ConfigPage />,
             },
           ]}
         />

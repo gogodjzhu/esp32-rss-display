@@ -46,10 +46,18 @@ curl -s -X POST -H 'Content-Type: application/json' \
      -d '{"url":"https://news.ycombinator.com/rss"}' \
      http://localhost:8080/admin/feeds/preview | jq .
 
+# 管理页运行期配置：默认关闭，切换即保存到数据库，无需重启
+curl -s http://localhost:8080/admin/config
+curl -s -X PUT -H 'Content-Type: application/json' \
+     -d '{"translation_enabled":true}' http://localhost:8080/admin/config
+# 英文标题在后台翻译并缓存（Google 优先、MyMemory 兜底，无需 Key）。
+# 未完成或失败时显示原文；关闭后恢复原文。开关与译文随数据库保存。
+
 # 管理页面：浏览器打开 http://localhost:8080/admin/
 # - 「概览」默认打开：条目/设备/评分/存储规模、近 14 天新增与评分分布图表、异常源摘要
 # - 「订阅源」表格：状态、最近成功、最近新内容、条目数、展示/NFC/评分、最近错误；
 #   操作收进下拉菜单，点击行打开该源已抓取条目的抽屉
+# - 「配置」tab：英文标题翻译开关，切换即保存并立即生效，保存失败显示错误
 # - 新增订阅源必须先「校验并预览」，后端同时会在创建时再校验一次
 # - 支持亮色/暗色/跟随系统主题，移动端表格横向滚动、抽屉全屏
 # - 前端源码在 backend/admin-web/（Vite + React + Ant Design + Recharts），

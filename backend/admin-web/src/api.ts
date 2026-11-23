@@ -1,4 +1,5 @@
 import type {
+  AdminConfig,
   AdminItemList,
   AdminStatus,
   FeedInput,
@@ -47,6 +48,11 @@ export const api = {
 
   feedItems: (id: number, offset = 0, limit = 30) =>
     request<AdminItemList>(`/admin/feeds/${id}/items?offset=${offset}&limit=${limit}`),
+
+  getConfig: () => request<AdminConfig>('/admin/config'),
+
+  updateConfig: (input: AdminConfig) =>
+    jsonRequest<AdminConfig>('/admin/config', 'PUT', input),
 
   createFeed: (input: FeedInput) => jsonRequest<FeedStatus>('/v1/feeds', 'POST', input),
 

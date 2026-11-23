@@ -24,9 +24,10 @@ npm run build    # 输出到 ../server/admin/static
 
 ## 结构
 
-- `src/App.tsx`：布局、主题（亮色/暗色/跟随系统）、自动刷新、两个 tab
+- `src/App.tsx`：布局、主题（亮色/暗色/跟随系统）、自动刷新、三个 tab
 - `src/pages/OverviewPage.tsx`：「概览」统计卡片与图表
 - `src/pages/FeedsPage.tsx`：「订阅源」表格与操作菜单
+- `src/pages/ConfigPage.tsx`：「配置」运行期开关（英文标题翻译）
 - `src/components/FeedFormModal.tsx`：新增/编辑弹窗，新增前必须校验预览
 - `src/components/FeedItemsDrawer.tsx`：单源条目抽屉
 - `src/api.ts`、`src/types.ts`：后端接口封装与类型

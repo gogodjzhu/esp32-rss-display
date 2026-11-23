@@ -68,6 +68,9 @@ go mod tidy                                         # 同步依赖
 - `GET /admin/status` — 管理页概览数据：每个源的健康度、条目/NFC/评分/展示统计、近 14 天每日新增
 - `GET /admin/feeds/{id}/items?limit=&offset=` — 单个订阅源的条目列表（管理页抽屉）
 - `POST /admin/feeds/preview` — 新增订阅源前的真实抓取校验，返回源标题与样例条目
+- `GET /admin/config` / `PUT /admin/config` — 管理页「配置」tab 的运行期配置；目前支持 `translation_enabled`（RSS 标题英译中开关）
+
+**标题翻译：** `app_settings.translation_enabled` 默认关闭，管理页保存立即生效。后台分批翻译保留期内的英文标题（Google 公开接口优先、MyMemory 兜底，无需 Key），结果缓存到 `items.translated_title`。`next` 在开启且存在译文时返回译文，否则返回原标题；关闭后不再发起新翻译。
 
 **管理页前端：** 源码在 `backend/admin-web/`（Vite + React + Ant Design + Recharts），构建产物提交到 `server/admin/static/` 并由 `go:embed` 打进二进制——Go 构建与 Docker 不需要 Node。改完前端需重新构建：
 
